@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@drawable/widget_bg"
+    android:paddingLeft="22dp"
+    android:paddingRight="22dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="18dp"
+    android:gravity="center_vertical">
+
+    <!-- Left side: Stats Column -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1.5"
+        android:orientation="vertical"
+        android:gravity="center_vertical">
+
+        <!-- Remaining Balance Section with Eye icon -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="REMAINING BALANCE"
+                android:textColor="#9EAFBE"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"/>
+
+            <ImageView
+                android:id="@+id/widget_eye_toggle"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:padding="4dp"
+                android:layout_marginLeft="6dp"
+                android:src="@drawable/ic_visibility_off"
+                android:contentDescription="Toggle Balance Visibility"
+                android:focusable="true"
+                android:clickable="true" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_balance_amount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="₹0"
+            android:textColor="#10B981"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Month Spends Section & Today Spends Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <!-- Month Spends Column -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="MONTH SPENDS"
+                    android:textColor="#9EAFBE"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.06"/>
+
+                <TextView
+                    android:id="@+id/widget_month_spends_amount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="₹0"
+                    android:textColor="#F43F5E"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+            <!-- Today Spends Column -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TODAY'S SPENDS"
+                    android:textColor="#9EAFBE"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.06"/>
+
+                <TextView
+                    android:id="@+id/widget_today_spends_amount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="₹0"
+                    android:textColor="#F43F5E"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Visual Elegant Divider -->
+    <FrameLayout
+        android:layout_width="1.2dp"
+        android:layout_height="match_parent"
+        android:background="#232C3E"
+        android:layout_marginLeft="16dp"
+        android:layout_marginRight="16dp"/>
+
+    <!-- Right side: Quick Action Button -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.8"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widget_btn_add_expense"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:background="@drawable/widget_btn_expense_bg"
+            android:text="+ Add"
+            android:textColor="#FFFFFF"
+            android:gravity="center"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.02"
+            android:focusable="true"
+            android:clickable="true" />
+
+    </LinearLayout>
+
+</LinearLayout>
