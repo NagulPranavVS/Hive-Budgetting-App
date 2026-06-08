@@ -84,13 +84,16 @@ class MonthSpendingWidgetProvider : AppWidgetProvider() {
                 val spentFormatted = "₹" + NumberFormat.getNumberInstance(Locale.US).format(spentThisMonth.toInt())
                 val spentTodayFormatted = "₹" + NumberFormat.getNumberInstance(Locale.US).format(spentToday.toInt())
 
+                val spentTextToShow = if (isBalanceHidden) "₹••••" else spentFormatted
+                val spentTodayTextToShow = if (isBalanceHidden) "₹••••" else spentTodayFormatted
+
                 for (appWidgetId in appWidgetIds) {
                     val views = RemoteViews(context.packageName, R.layout.widget_month_spending)
                     
                     views.setTextViewText(R.id.widget_balance_amount, balanceTextToShow)
                     views.setImageViewResource(R.id.widget_eye_toggle, eyeIconRes)
-                    views.setTextViewText(R.id.widget_month_spends_amount, spentFormatted)
-                    views.setTextViewText(R.id.widget_today_spends_amount, spentTodayFormatted)
+                    views.setTextViewText(R.id.widget_month_spends_amount, spentTextToShow)
+                    views.setTextViewText(R.id.widget_today_spends_amount, spentTodayTextToShow)
                     
                     // Add Expense Intent
                     val expenseIntent = Intent(context, MainActivity::class.java).apply {

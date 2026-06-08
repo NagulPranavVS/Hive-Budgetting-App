@@ -75,6 +75,10 @@ fun TransactionsScreen(
         baseList
     }
 
+    val groupedExpenses = remember(filteredExpenses) {
+        filteredExpenses.groupBy { getGroupDateString(it.date) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -323,7 +327,7 @@ fun TransactionsScreen(
             }
 
             // Transactions Listing LazyColumn
-            if (filteredExpenses.isEmpty()) {
+            if (groupedExpenses.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -357,39 +361,57 @@ fun TransactionsScreen(
                         .padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
                 ) {
-                    items(filteredExpenses, key = { it.id }) { expense ->
-                        val category = categoriesMap[expense.categoryId]
-                        TransactionScreenRowItem(
-                            expense = expense,
-                            category = category,
-                            onEdit = { onEditExpense(expense) },
-                            onDelete = {
-                                val deletedItem = expense
-                                viewModel.deleteExpense(expense)
-                                coroutineScope.launch {
-                                    val snackbarResult = snackbarHostState.showSnackbar(
-                                        message = "Deleted: ${expense.description}",
-                                        actionLabel = "Undo",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (snackbarResult == SnackbarResult.ActionPerformed) {
-                                        viewModel.addExpense(
-                                            amount = deletedItem.amount,
-                                            description = deletedItem.description,
-                                            date = deletedItem.date,
-                                            categoryId = deletedItem.categoryId,
-                                            isIncome = deletedItem.isIncome
+                    groupedExpenses.forEach { (dateHeader, expenses) ->
+                        // Header item for the date
+                        item(key = "header_$dateHeader") {
+                            Text(
+                                text = dateHeader,
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 18.dp, bottom = 6.dp)
+                            )
+                        }
+
+                        items(expenses, key = { it.id }) { expense ->
+                            val category = categoriesMap[expense.categoryId]
+                            TransactionScreenRowItem(
+                                expense = expense,
+                                category = category,
+                                onEdit = { onEditExpense(expense) },
+                                onDelete = {
+                                    val deletedItem = expense
+                                    viewModel.deleteExpense(expense)
+                                    coroutineScope.launch {
+                                        val snackbarResult = snackbarHostState.showSnackbar(
+                                            message = "Deleted: ${expense.description}",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
                                         )
+                                        if (snackbarResult == SnackbarResult.ActionPerformed) {
+                                            viewModel.addExpense(
+                                                amount = deletedItem.amount,
+                                                description = deletedItem.description,
+                                                date = deletedItem.date,
+                                                categoryId = deletedItem.categoryId,
+                                                isIncome = deletedItem.isIncome
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 50.dp),
-                            thickness = 0.8.dp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
-                        )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 50.dp),
+                                thickness = 0.8.dp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+                            )
+                        }
                     }
                 }
             }
@@ -483,7 +505,7 @@ fun TransactionScreenRowItem(
         else -> "Other"
     }
 
-    val subTitleText = "$catName • $relativeDateStr"
+    val subTitleText = catName
 
     Row(
         modifier = Modifier
@@ -555,5 +577,22 @@ fun TransactionScreenRowItem(
                 color = amountColor
             )
         )
+    }
+}
+
+private fun getGroupDateString(timestamp: Long): String {
+    val calItem = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+    val calToday = java.util.Calendar.getInstance()
+    val calYesterday = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DATE, -1) }
+
+    val isSameDay = { c1: java.util.Calendar, c2: java.util.Calendar ->
+        c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR) &&
+        c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+
+    return when {
+        isSameDay(calItem, calToday) -> "Today"
+        isSameDay(calItem, calYesterday) -> "Yesterday"
+        else -> SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(Date(timestamp))
     }
 }
