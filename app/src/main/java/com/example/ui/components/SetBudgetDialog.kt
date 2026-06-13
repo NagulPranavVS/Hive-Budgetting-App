@@ -19,7 +19,8 @@ fun SetBudgetDialog(
     initialIsSettled: Boolean,
     onDismiss: () -> Unit,
     onSave: (Double, Boolean, Boolean) -> Unit,
-    availableBalance: Double? = null
+    availableBalance: Double? = null,
+    currencySymbol: String = "₹"
 ) {
     var budgetStr by remember { mutableStateOf(category.monthlyBudget?.let { String.format(Locale.getDefault(), "%.0f", it) } ?: "") }
     var isRecurring by remember { mutableStateOf(initialIsRecurring) }
@@ -50,7 +51,7 @@ fun SetBudgetDialog(
                         budgetStr = it
                         isError = false
                     },
-                    label = { Text("Monthly Budget (₹)", color = borderColor) },
+                    label = { Text("Monthly Budget ($currencySymbol)", color = borderColor) },
                     placeholder = { Text("e.g. 5000", color = borderColor.copy(alpha = 0.6f)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -77,7 +78,7 @@ fun SetBudgetDialog(
                     val adjustedBalance = availableBalance - enteredBudgetAmt
                     val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
                     Text(
-                        text = "Remaining Balance: ₹$formattedBalance",
+                        text = "Remaining Balance: $currencySymbol$formattedBalance",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(start = 4.dp, top = 2.dp)

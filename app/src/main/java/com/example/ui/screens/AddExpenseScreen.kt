@@ -58,6 +58,11 @@ fun AddExpenseScreen(
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
 
     val categories by viewModel.categories.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    val currencySymbol = remember(selectedCurrency) {
+        viewModel.getCurrencySymbol()
+    }
+    val prefix = remember(currencySymbol) { "$currencySymbol " }
     val expenses by viewModel.expenses.collectAsState()
     val editingExpense by viewModel.editingExpense.collectAsState()
     val homeMonth by viewModel.homeMonth.collectAsState()
@@ -84,6 +89,9 @@ fun AddExpenseScreen(
     val availableBalance = remember(incomeThisMonthAmount, savingsThisMonthAmount, spentThisMonthAmount) {
         incomeThisMonthAmount - savingsThisMonthAmount - spentThisMonthAmount
     }
+    val totalExpenseCatBudget = remember(categories) {
+        categories.filter { !it.isIncome && !it.isSavings }.sumOf { it.monthlyBudget ?: 0.0 }
+    }
 
     // Form states (supported types: "expense", "income", "savings")
     var transactionType by remember { mutableStateOf("expense") }
@@ -94,11 +102,11 @@ fun AddExpenseScreen(
             viewModel.widgetRouteIsIncome.value = null
         }
     }
-    var amountValue by remember {
+    var amountValue by remember(prefix) {
         mutableStateOf(
             TextFieldValue(
-                text = "₹ 0",
-                selection = TextRange(2)
+                text = "${prefix}0",
+                selection = TextRange(prefix.length)
             )
         )
     }
@@ -119,7 +127,7 @@ fun AddExpenseScreen(
                 exp.isIncome -> "income"
                 else -> "expense"
             }
-            val amtText = "₹ ${exp.amount.toInt()}"
+            val amtText = "$prefix${exp.amount.toInt()}"
             amountValue = TextFieldValue(
                 text = amtText,
                 selection = TextRange(amtText.length)
@@ -155,7 +163,7 @@ fun AddExpenseScreen(
     }
 
     fun isFormValid(): Boolean {
-        val cleanAmountStr = amountValue.text.substringAfter("₹ ").trim()
+        val cleanAmountStr = amountValue.text.substringAfter(prefix).trim()
         val amount = cleanAmountStr.toDoubleOrNull()
         return amount != null && amount > 0.0 && selectedCategoryId != null
     }
@@ -163,7 +171,7 @@ fun AddExpenseScreen(
     fun saveExpense() {
         if (!isFormValid()) return
 
-        val cleanAmountStr = amountValue.text.substringAfter("₹ ").trim()
+        val cleanAmountStr = amountValue.text.substringAfter(prefix).trim()
         val amount = cleanAmountStr.toDoubleOrNull() ?: 0.0
         val categoryName = categories.find { it.id == selectedCategoryId }?.name ?: "Expense"
         val finalDescription = if (description.trim().isBlank()) categoryName else description.trim()
@@ -203,10 +211,17 @@ fun AddExpenseScreen(
         
 
         // Clear Form fields & resets focus
-        amountValue = TextFieldValue(text = "₹ 0", selection = TextRange(2))
+        amountValue = TextFieldValue(text = "${prefix}0", selection = TextRange(prefix.length))
         description = ""
         selectedDateMillis = System.currentTimeMillis()
-        selectedCategoryId = null
+        val defaultCat = categories.filter {
+            when (transactionType) {
+                "income" -> it.isIncome && !it.isSavings
+                "savings" -> it.isSavings
+                else -> !it.isIncome && !it.isSavings
+            }
+        }.firstOrNull()
+        selectedCategoryId = defaultCat?.id
         focusManager.clearFocus()
         if (editing != null) {
             onBack?.invoke()
@@ -319,7 +334,7 @@ fun AddExpenseScreen(
                                 text = "Expense",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "expense") Color.White else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    color = if (transactionType == "expense") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                 )
                             )
                         }
@@ -341,7 +356,7 @@ fun AddExpenseScreen(
                                 text = "Income",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "income") Color.White else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    color = if (transactionType == "income") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                 )
                             )
                         }
@@ -363,7 +378,7 @@ fun AddExpenseScreen(
                                 text = "Savings",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "savings") Color.White else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    color = if (transactionType == "savings") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                 )
                             )
                         }
@@ -383,25 +398,25 @@ fun AddExpenseScreen(
                             onValueChange = { newValue ->
                                 val cleanNewText = newValue.text
 
-                                // Ensure the prefix "₹ " is ALWAYS kept at the start
-                                if (!cleanNewText.startsWith("₹ ")) {
-                                    // If they backspaced into the "₹ " prefix or completely cleared it
-                                    // We restore "₹ 0" with cursor before 0
-                                    amountValue = TextFieldValue(text = "₹ 0", selection = TextRange(2))
+                                 // Ensure the prefix is ALWAYS kept at the start
+                                if (!cleanNewText.startsWith(prefix)) {
+                                    // If they backspaced into the prefix or completely cleared it
+                                    // We restore "prefix + 0" with cursor after 0
+                                    amountValue = TextFieldValue(text = "${prefix}0", selection = TextRange(prefix.length))
                                 } else {
                                     val originalText = amountValue.text
-                                    val numericPart = cleanNewText.substringAfter("₹ ")
+                                    val numericPart = cleanNewText.substringAfter(prefix)
                                     
                                     // Handle replacement of default '0' with the first typed number
-                                    if (originalText == "₹ 0" && cleanNewText != "₹ 0") {
+                                    if (originalText == "${prefix}0" && cleanNewText != "${prefix}0") {
                                         if (numericPart.length == 2) {
                                             val firstChar = numericPart[0]
                                             val secondChar = numericPart[1]
                                             if (firstChar == '0' && secondChar.isDigit()) {
-                                                val formatted = "₹ $secondChar"
+                                                val formatted = "$prefix$secondChar"
                                                 amountValue = TextFieldValue(text = formatted, selection = TextRange(formatted.length))
                                             } else if (secondChar == '0' && firstChar.isDigit()) {
-                                                val formatted = "₹ $firstChar"
+                                                val formatted = "$prefix$firstChar"
                                                 amountValue = TextFieldValue(text = formatted, selection = TextRange(formatted.length))
                                             } else {
                                                 // Default logic fallback when numeric length is 2 but not a replacement scenario
@@ -411,12 +426,12 @@ fun AddExpenseScreen(
                                             }
                                         } else if (numericPart == ".") {
                                             // If they typed dot, keep "0."
-                                            val formatted = "₹ 0."
+                                            val formatted = "${prefix}0."
                                             amountValue = TextFieldValue(text = formatted, selection = TextRange(formatted.length))
                                         } else {
                                             // General fallback
                                             if (numericPart.isEmpty()) {
-                                                amountValue = TextFieldValue(text = "₹ 0", selection = TextRange(2))
+                                                amountValue = TextFieldValue(text = "${prefix}0", selection = TextRange(prefix.length))
                                             } else if (numericPart.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
                                                 amountValue = newValue
                                             }
@@ -424,10 +439,10 @@ fun AddExpenseScreen(
                                     } else {
                                         // Standard editing logic
                                         if (numericPart.isEmpty()) {
-                                            amountValue = TextFieldValue(text = "₹ 0", selection = TextRange(2))
+                                            amountValue = TextFieldValue(text = "${prefix}0", selection = TextRange(prefix.length))
                                         } else if (numericPart.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
-                                            if (cleanNewText == "₹ 0") {
-                                                amountValue = newValue.copy(selection = TextRange(2))
+                                            if (cleanNewText == "${prefix}0") {
+                                                amountValue = newValue.copy(selection = TextRange(prefix.length))
                                             } else {
                                                 amountValue = newValue
                                             }
@@ -491,9 +506,9 @@ fun AddExpenseScreen(
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
-                                focusedLabelColor = if (isDark) Color.White else Color.Black,
+                                focusedLabelColor = MaterialTheme.colorScheme.primary,
                                 unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                 focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
@@ -713,7 +728,27 @@ fun AddExpenseScreen(
                                     }
                                 }
 
-                                val ratio = categorySpent / budget
+                                val enteredAmount = try {
+                                    val cleanStr = amountValue.text.substringAfter(prefix).trim()
+                                    cleanStr.toDoubleOrNull() ?: 0.0
+                                } catch (e: Exception) {
+                                    0.0
+                                }
+
+                                val currentEditingExpense = editingExpense
+                                val editingOffset = if (currentEditingExpense != null && currentEditingExpense.categoryId == selectedCategoryId) {
+                                    val cal = java.util.Calendar.getInstance()
+                                    cal.timeInMillis = currentEditingExpense.date
+                                    val expMonth = cal.get(java.util.Calendar.MONTH) + 1
+                                    val expYear = cal.get(java.util.Calendar.YEAR)
+                                    if (expMonth == curMonth && expYear == curYear && !currentEditingExpense.isIncome && !currentEditingExpense.isSavings) {
+                                        currentEditingExpense.amount
+                                    } else 0.0
+                                } else 0.0
+
+                                val effectiveCategorySpent = (categorySpent - editingOffset + enteredAmount).coerceAtLeast(0.0)
+                                val remainingBudget = budget - effectiveCategorySpent
+                                val ratio = effectiveCategorySpent / budget
                                 val progress = ratio.coerceIn(0.0, 1.0).toFloat()
                                 val barColor = when {
                                     ratio > 1.0 -> MaterialTheme.colorScheme.error
@@ -743,8 +778,13 @@ fun AddExpenseScreen(
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
+                                        val formattedRemaining = if (remainingBudget >= 0) {
+                                            "$currencySymbol${String.format(java.util.Locale.US, "%,.0f", remainingBudget)}"
+                                        } else {
+                                            "-$currencySymbol${String.format(java.util.Locale.US, "%,.0f", -remainingBudget)}"
+                                        }
                                         Text(
-                                            text = "₹${String.format(java.util.Locale.US, "%,.0f", categorySpent)} of ₹${String.format(java.util.Locale.US, "%,.0f", budget)} used",
+                                            text = "$formattedRemaining of $currencySymbol${String.format(java.util.Locale.US, "%,.0f", budget)} remaining",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                         )
@@ -762,7 +802,7 @@ fun AddExpenseScreen(
                                     if (ratio > 1.0) {
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "⚠️ Over budget by ₹${String.format(java.util.Locale.US, "%,.0f", categorySpent - budget)}",
+                                            text = "⚠️ Over budget by $currencySymbol${String.format(java.util.Locale.US, "%,.0f", categorySpent - budget)}",
                                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.error
                                         )
@@ -779,11 +819,12 @@ fun AddExpenseScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(
                         start = 20.dp,
                         end = 20.dp,
-                        top = if (isKeyboardVisible) 0.dp else 8.dp,
-                        bottom = if (isKeyboardVisible) 0.dp else 12.dp
+                        top = if (isKeyboardVisible) 0.dp else 12.dp,
+                        bottom = if (isKeyboardVisible) 8.dp else 10.dp
                     )
             ) {
                 Button(
@@ -795,7 +836,7 @@ fun AddExpenseScreen(
                     shape = RoundedCornerShape(50.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White // White text for brand primary CTA
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     enabled = isFormValid()
                 ) {
@@ -866,7 +907,7 @@ fun AddExpenseScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
                                 focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
@@ -956,25 +997,28 @@ fun AddExpenseScreen(
                                             catBudget = input
                                         }
                                     },
-                                    placeholder = { Text("e.g. ₹3,000") },
-                                    leadingIcon = { Text("₹", style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
+                                    placeholder = { Text("e.g. ${currencySymbol}3,000") },
+                                    leadingIcon = { Text(currencySymbol, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                        focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
                                         unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
                                         focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                                     )
                                 )
-                                val formattedBalance = String.format(Locale.getDefault(), "%,.0f", availableBalance)
+                                val enteredBudgetAmt = catBudget.trim().toDoubleOrNull() ?: 0.0
+                                val availableBalanceForCreate = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget)
+                                val adjustedBalance = availableBalanceForCreate - enteredBudgetAmt
+                                val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
                                 Text(
-                                    text = "Available Balance: ₹$formattedBalance",
+                                    text = "Remaining Balance: $currencySymbol$formattedBalance",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (availableBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -1011,7 +1055,7 @@ fun AddExpenseScreen(
                     }
                 },
                 confirmButton = {
-                    TextButton(
+                    Button(
                         onClick = {
                             if (catName.isNotBlank()) {
                                 viewModel.addCategory(
@@ -1029,12 +1073,12 @@ fun AddExpenseScreen(
                         },
                         enabled = catName.isNotBlank()
                     ) {
-                        Text("Add", fontWeight = FontWeight.Bold, color = if (isDark) Color.White else MaterialTheme.colorScheme.primary)
+                        Text("Add", fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showNewCategoryDialog = false }) {
-                        Text("Cancel", color = if (isDark) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary)
+                        Text("Cancel", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                     }
                 }
             )
@@ -1228,7 +1272,7 @@ fun AddExpenseScreen(
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                        focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
                                         unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
                                         focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
@@ -1313,25 +1357,32 @@ fun AddExpenseScreen(
                                                     renameBudget = input
                                                 }
                                             },
-                                            placeholder = { Text("e.g. ₹3,000") },
-                                            leadingIcon = { Text("₹", style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
+                                            placeholder = { Text("e.g. ${currencySymbol}3,000") },
+                                            leadingIcon = { Text(currencySymbol, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
                                             singleLine = true,
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                             modifier = Modifier.fillMaxWidth(),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                                focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
                                                 unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
                                                 focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                                             )
                                         )
-                                        val formattedBalance = String.format(Locale.getDefault(), "%,.0f", availableBalance)
+                                        val otherBudgetsSum = remember(categories, categoryToRename.id) {
+                                            categories.filter { !it.isIncome && !it.isSavings && it.id != categoryToRename.id }
+                                                .sumOf { it.monthlyBudget ?: 0.0 }
+                                        }
+                                        val enteredBudgetAmt = renameBudget.trim().toDoubleOrNull() ?: 0.0
+                                        val availableBalanceForEdit = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
+                                        val adjustedBalance = availableBalanceForEdit - enteredBudgetAmt
+                                        val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
                                         Text(
-                                            text = "Available Balance: ₹$formattedBalance",
+                                            text = "Remaining Balance: $currencySymbol$formattedBalance",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = if (availableBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                            color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
@@ -1391,7 +1442,7 @@ fun AddExpenseScreen(
                             }
                         },
                         confirmButton = {
-                            TextButton(
+                            Button(
                                 onClick = {
                                     if (renameName.isNotBlank()) {
                                         viewModel.updateCategory(
@@ -1410,12 +1461,12 @@ fun AddExpenseScreen(
                                 },
                                 enabled = renameName.isNotBlank()
                              ) {
-                                Text("Save", fontWeight = FontWeight.Bold, color = if (isDark) Color.White else MaterialTheme.colorScheme.primary)
+                                Text("Save", fontWeight = FontWeight.Bold)
                             }
                         },
                         dismissButton = {
                             TextButton(onClick = { showRenameDialogForCategory = null }) {
-                                Text("Cancel", color = if (isDark) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary)
+                                Text("Cancel", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                             }
                         }
                     )

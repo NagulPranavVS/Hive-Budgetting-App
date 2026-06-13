@@ -52,6 +52,8 @@ fun ProfileScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val userName by viewModel.userName.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    var showCurrencyDropdown by remember { mutableStateOf(false) }
     val themeMode by viewModel.themeMode.collectAsState()
     val sheetsSyncEnabled by viewModel.sheetsSyncEnabled.collectAsState()
     val connectedSheetId by viewModel.connectedSheetId.collectAsState()
@@ -169,7 +171,7 @@ fun ProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Transparent),
-        contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 100.dp),
+        contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 140.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Toolbar
@@ -229,9 +231,9 @@ fun ProfileScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                                focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f),
-                                focusedLabelColor = if (isDark) Color.White else Color.Black,
+                                focusedLabelColor = MaterialTheme.colorScheme.primary,
                                 unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                 focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
@@ -239,23 +241,87 @@ fun ProfileScreen(
                         )
                     }
 
-                    // Currency (Fixed display in INR - icon removed for Requirement 11)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                               text = "Base Currency",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    // Base Currency selector with dropdown
+                    Column {
+                        Text(
+                            text = "Base Currency",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            val displayLabel = when (selectedCurrency.uppercase()) {
+                                "INR" -> "Indian Rupee (₹ INR)"
+                                "GBP" -> "British Pound (£ GBP)"
+                                "EUR" -> "Euro (€ EUR)"
+                                "USD" -> "US Dollar ($ USD)"
+                                "AED" -> "UAE Dirham (د.إ AED)"
+                                else -> "Indian Rupee (₹ INR)"
+                            }
+                            
+                            OutlinedTextField(
+                                value = displayLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showCurrencyDropdown = true }
+                                    .testTag("profile_currency_input"),
+                                enabled = false, // false so that entire textfield is clickable without focus
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    disabledTextColor = MaterialTheme.colorScheme.onBackground,
+                                    disabledBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f),
+                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                ),
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Dropdown Indicator",
+                                        modifier = Modifier.clickable { showCurrencyDropdown = true }
+                                    )
+                                }
                             )
-                            Text(
-                                text = "Indian Rupee (₹ INR)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                            
+                            // Absolute overlay to make clicking the OutlinedTextField work seamlessly when disabled
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { showCurrencyDropdown = true }
                             )
+
+                            DropdownMenu(
+                                expanded = showCurrencyDropdown,
+                                onDismissRequest = { showCurrencyDropdown = false },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            ) {
+                                val currencies = listOf(
+                                    Pair("INR", "Indian Rupee (₹ INR)"),
+                                    Pair("GBP", "British Pound (£ GBP)"),
+                                    Pair("EUR", "Euro (€ EUR)"),
+                                    Pair("USD", "US Dollar ($ USD)"),
+                                    Pair("AED", "UAE Dirham (د.إ AED)")
+                                )
+                                currencies.forEach { (code, label) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                                            )
+                                        },
+                                        onClick = {
+                                            viewModel.saveCurrency(code)
+                                            showCurrencyDropdown = false
+                                        },
+                                        modifier = Modifier.testTag("currency_item_${code.lowercase()}")
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -282,15 +348,13 @@ fun ProfileScreen(
                         color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp),
                         modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    // Dropdown / Row choice light, dark, system
+                    )                    // Dropdown / Row choice light, dark, system
                     val options = listOf("system", "light", "dark")
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f))
                             .padding(3.dp)
                     ) {
@@ -300,7 +364,7 @@ fun ProfileScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(CircleShape)
                                     .background(
                                         if (isSel) MaterialTheme.colorScheme.primary
                                         else Color.Transparent
@@ -347,7 +411,7 @@ fun ProfileScreen(
 
                     Button(
                         onClick = { onManageCategories() },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = CircleShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("profile_manage_categories_btn"),
@@ -406,7 +470,7 @@ fun ProfileScreen(
                                     showExportDialog = true
                                 }
                             },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = CircleShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("profile_export_backup_btn"),
@@ -430,7 +494,7 @@ fun ProfileScreen(
                             onClick = {
                                 showImportDialog = true
                             },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = CircleShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("profile_import_backup_btn"),
@@ -594,8 +658,7 @@ fun ProfileScreen(
                                 importBackupDocumentLauncher.launch("*/*")
                             } catch (e: Exception) {
                                 e.printStackTrace()
-                                showManualTextInput = true
-                                Toast.makeText(context, "No system file picker found. Paste your backup code directly instead.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "No system file picker found. Please ensure a file explorer is installed.", Toast.LENGTH_LONG).show()
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -613,57 +676,6 @@ fun ProfileScreen(
                         ) {
                             Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(22.dp))
                             Text("Upload Backup File", fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (!showManualTextInput) {
-                        TextButton(
-                            onClick = { showManualTextInput = true },
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            Text("Paste backup text code manually", color = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedTextField(
-                                value = importJsonText,
-                                onValueChange = { importJsonText = it },
-                                placeholder = { Text("Paste JSON backup code here...") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(110.dp)
-                                    .testTag("import_backup_input"),
-                                shape = RoundedCornerShape(12.dp),
-                                textStyle = MaterialTheme.typography.bodyMedium
-                            )
-
-                            Button(
-                                onClick = {
-                                    if (importJsonText.isBlank()) {
-                                        Toast.makeText(context, "Please paste valid backup code.", Toast.LENGTH_SHORT).show()
-                                        return@Button
-                                    }
-                                    coroutineScope.launch {
-                                        val success = viewModel.importBackupJson(importJsonText)
-                                        if (success) {
-                                            Toast.makeText(context, "Backup restored successfully!", Toast.LENGTH_LONG).show()
-                                            showImportDialog = false
-                                            showManualTextInput = false
-                                            importJsonText = ""
-                                        } else {
-                                            Toast.makeText(context, "Failed to restore backup. Invalid code format.", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                            ) {
-                                Text("Verify & Restore Pasted Backup", fontWeight = FontWeight.Bold)
-                            }
                         }
                     }
 

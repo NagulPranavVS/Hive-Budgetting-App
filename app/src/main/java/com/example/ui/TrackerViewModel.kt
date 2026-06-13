@@ -9,9 +9,6 @@ import com.example.TrackerApplication
 import com.example.data.model.Category
 import com.example.data.model.Expense
 import com.example.data.repository.ExpenseRepository
-import com.example.data.remote.GeminiCoachService
-import com.example.data.remote.CoachInsights
-import com.example.data.remote.CoachConversationResponse
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -70,6 +67,25 @@ class TrackerViewModel(
     // Profiles & themes state
     private val _userName = MutableStateFlow(repository.getUserName())
     val userName: StateFlow<String> = _userName.asStateFlow()
+
+    private val _selectedCurrency = MutableStateFlow(repository.getSelectedCurrency())
+    val selectedCurrency: StateFlow<String> = _selectedCurrency.asStateFlow()
+
+    fun saveCurrency(currency: String) {
+        repository.setSelectedCurrency(currency)
+        _selectedCurrency.value = currency
+    }
+
+    fun getCurrencySymbol(): String {
+        return when (_selectedCurrency.value.uppercase()) {
+            "INR" -> "₹"
+            "POUNDS", "GBP" -> "£"
+            "EUROS", "EUR" -> "€"
+            "DOLLARS", "USD" -> "$"
+            "DIRHAMS", "AED" -> "د.إ"
+            else -> "₹"
+        }
+    }
 
     private val _themeMode = MutableStateFlow(repository.getThemeMode())
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
@@ -320,6 +336,10 @@ class TrackerViewModel(
         }
     }
 
+    fun getCategoryBudgetForMonth(categoryId: Int, month: Int, year: Int): Double? {
+        return repository.getCategoryBudgetForMonth(categoryId, month, year)
+    }
+
     suspend fun canDeleteCategory(categoryId: Int): Boolean {
         return repository.getExpenseCountForCategory(categoryId) == 0
     }
@@ -455,111 +475,6 @@ class TrackerViewModel(
                 _exportState.value = ExportState.Error("Failed to export. Please check connection.")
             }
         }
-    }
-
-    // AI Budget Coach & Financial Insights State
-    private val _isCoachPanelOpen = MutableStateFlow(false)
-    val isCoachPanelOpen: StateFlow<Boolean> = _isCoachPanelOpen.asStateFlow()
-
-    fun setCoachPanelOpen(open: Boolean) {
-        _isCoachPanelOpen.value = open
-    }
-
-    private val _coachInsights = MutableStateFlow<CoachInsights?>(null)
-    val coachInsights: StateFlow<CoachInsights?> = _coachInsights.asStateFlow()
-
-    private val _coachLoading = MutableStateFlow(false)
-    val coachLoading: StateFlow<Boolean> = _coachLoading.asStateFlow()
-
-    private val _coachError = MutableStateFlow<String?>(null)
-    val coachError: StateFlow<String?> = _coachError.asStateFlow()
-
-    private val _coachChatHistory = MutableStateFlow<List<Pair<String, CoachConversationResponse>>>(emptyList())
-    val coachChatHistory: StateFlow<List<Pair<String, CoachConversationResponse>>> = _coachChatHistory.asStateFlow()
-
-    private val _chatLoading = MutableStateFlow(false)
-    val chatLoading: StateFlow<Boolean> = _chatLoading.asStateFlow()
-
-    fun generateInsights() {
-        _coachLoading.value = true
-        _coachError.value = null
-        viewModelScope.launch {
-            try {
-                // Filter expense list to current selected report month or default current month
-                val currentMonthExpenses = expenses.value.filter { exp ->
-                    val cal = Calendar.getInstance().apply { timeInMillis = exp.date }
-                    val expMonth = cal.get(Calendar.MONTH) + 1
-                    val expYear = cal.get(Calendar.YEAR)
-                    val targetMonth = reportMonth.value
-                    val targetYear = reportYear.value
-                    expMonth == targetMonth && expYear == targetYear
-                }
-                
-                val result = GeminiCoachService.generateFinancialInsights(
-                    expenses = currentMonthExpenses,
-                    categories = categories.value,
-                    globalBudget = globalMonthlyBudget.value
-                )
-                
-                _coachLoading.value = false
-                if (result != null) {
-                    _coachInsights.value = result
-                } else {
-                    _coachError.value = "Unable to generate insights. Please ensure your GEMINI_API_KEY is configured in the AI Studio Secrets panel."
-                }
-            } catch (e: Exception) {
-                _coachLoading.value = false
-                _coachError.value = "Error during generation: ${e.message}"
-            }
-        }
-    }
-
-    fun askBudgetCoach(question: String) {
-        if (question.isBlank() || _chatLoading.value) return
-        _chatLoading.value = true
-        _coachError.value = null
-        
-        viewModelScope.launch {
-            try {
-                val currentMonthExpenses = expenses.value.filter { exp ->
-                    val cal = Calendar.getInstance().apply { timeInMillis = exp.date }
-                    val expMonth = cal.get(Calendar.MONTH) + 1
-                    val expYear = cal.get(Calendar.YEAR)
-                    val targetMonth = reportMonth.value
-                    val targetYear = reportYear.value
-                    expMonth == targetMonth && expYear == targetYear
-                }
-
-                val response = GeminiCoachService.askBudgetCoach(
-                    questionText = question,
-                    expenses = currentMonthExpenses,
-                    categories = categories.value,
-                    globalBudget = globalMonthlyBudget.value
-                )
-
-                _chatLoading.value = false
-                if (response != null) {
-                    val updated = _coachChatHistory.value.toMutableList().apply {
-                        add(Pair(question, response))
-                    }
-                    _coachChatHistory.value = updated
-                } else {
-                    _coachError.value = "Failed to communicate with AI Coach. Please verify internet connection and active API Key."
-                }
-            } catch (e: Exception) {
-                _chatLoading.value = false
-                _coachError.value = "Chat error: ${e.message}"
-            }
-        }
-    }
-
-    fun clearCoachChat() {
-        _coachChatHistory.value = emptyList()
-        _coachError.value = null
-    }
-
-    fun clearCoachError() {
-        _coachError.value = null
     }
 }
 

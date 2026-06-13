@@ -54,6 +54,10 @@ fun ManageCategoriesScreen(
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
 
     val categories by viewModel.categories.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    val currencySymbol = remember(selectedCurrency) {
+        viewModel.getCurrencySymbol()
+    }
     val homeMonth by viewModel.homeMonth.collectAsState()
     val homeYear by viewModel.homeYear.collectAsState()
 
@@ -215,7 +219,7 @@ fun ManageCategoriesScreen(
                             unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                             focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
                             unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
-                            focusedBorderColor = if (isDark) Color.White else Color.Black,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
                             unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
                             focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
                             unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
@@ -224,81 +228,146 @@ fun ManageCategoriesScreen(
                 }
             }
 
-            // --- REDESIGNED TOTAL CATEGORY BUDGET CARD ---
-            val budgetCardBg = if (isDark) MaterialTheme.colorScheme.surface else Color(0xFFF5F7FF)
-            val accentCardColor = MaterialTheme.colorScheme.primary
+            // --- PREMIUM REIMAGINED TOTAL CATEGORY BUDGET WIDGETS ---
+            val totalAllocatedBudgetVal = kotlin.math.round(incomeThisMonthAmount - savingsThisMonthAmount)
+            val remainingBudgetBalanceVal = totalAllocatedBudgetVal - kotlin.math.round(totalExpenseCatBudget)
             
-            Card(
+            val shortMonthsListEx = listOf(
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            )
+            val homeMonthLabelEx = shortMonthsListEx.getOrNull(homeMonth - 1) ?: "Jan"
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 18.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = budgetCardBg),
-                border = BorderStroke(1.dp, accentCardColor.copy(alpha = if (isDark) 0.15f else 0.08f))
+                    .padding(top = 10.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 22.dp, vertical = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(accentCardColor.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Category,
-                            contentDescription = "Category Budgets",
-                            tint = accentCardColor,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    
-                    val shortMonthsListEx = listOf(
-                        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                // Card 1: Allocated Budget
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDark) Color(0xFF1B1B2C) else Color(0xFFF2F5FF)
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.18f else 0.3f)
                     )
-                    val homeMonthLabelEx = shortMonthsListEx.getOrNull(homeMonth - 1) ?: "Jan"
-
+                ) {
                     Column(
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
                     ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ALLOCATED",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Total Category Budget ($homeMonthLabelEx $homeYear)",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.4.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
-                        )
-                        
-                        Spacer(modifier = Modifier.height(6.dp))
-                        
-                        Text(
-                            text = "₹${String.format(Locale.US, "%,.0f", totalExpenseCatBudget)}",
+                            text = "$currencySymbol${String.format(Locale.US, "%,.0f", totalAllocatedBudgetVal)}",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Black,
-                                fontSize = 26.sp,
-                                letterSpacing = (-0.5).sp
+                                fontSize = 19.sp
                             ),
                             color = if (isDark) Color.White else Color(0xFF1E1B4B)
                         )
-                        
-                        Spacer(modifier = Modifier.height(6.dp))
-                        
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Sum of all category budgets for $homeMonthLabelEx $homeYear.",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "To distribute ($homeMonthLabelEx)",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
                         )
                     }
                 }
+
+                // Card 2: Remaining Budget
+                val isNegative = remainingBudgetBalanceVal < 0
+                val remainingColor = if (isNegative) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    Color(0xFF10B981)
+                }
+                val rBgColor = if (isDark) {
+                    if (isNegative) Color(0xFF2C1E1E) else Color(0xFF1A2620)
+                } else {
+                    if (isNegative) Color(0xFFFFF2F2) else Color(0xFFECFDF5)
+                }
+                val rBorderColor = if (isNegative) {
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                } else {
+                    Color(0xFF10B981).copy(alpha = 0.3f)
+                }
+
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = rBgColor),
+                    border = BorderStroke(width = 1.dp, color = rBorderColor)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "REMAINING",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = remainingColor
+                            )
+                            Icon(
+                                imageVector = if (isNegative) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = remainingColor.copy(alpha = 0.8f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "$currencySymbol${String.format(Locale.US, "%,.0f", remainingBudgetBalanceVal)}",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Black,
+                                fontSize = 19.sp
+                            ),
+                            color = remainingColor
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isNegative) "Overallocated!" else "Available to map",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = if (isNegative) MaterialTheme.colorScheme.error.copy(alpha = 0.82f) else Color(0xFF047857)
+                        )
+                    }
+                }
             }
-            
+
+
             // --- SEGMENTED TAB BAR BELOW THE CARD ---
             Row(
                 modifier = Modifier
@@ -431,7 +500,7 @@ fun ManageCategoriesScreen(
                     .fillMaxWidth()
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(top = 4.dp, bottom = 40.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp)
             ) {
 
                 if (filteredCategories.isEmpty()) {
@@ -535,7 +604,7 @@ fun ManageCategoriesScreen(
                                                         .background(parsedColor)
                                                 )
                                                 Text(
-                                                    text = "Budget: ₹${String.format(Locale.US, "%,.0f", budgetVal)}",
+                                                    text = "Budget: $currencySymbol${String.format(Locale.US, "%,.0f", budgetVal)}",
                                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                                                     maxLines = 1,
@@ -617,11 +686,8 @@ fun ManageCategoriesScreen(
         var catBudget by remember { mutableStateOf("") }
         var isRecurring by remember { mutableStateOf(false) }
         
-        val iconsList = listOf("restaurant", "directions_car", "shopping_bag", "power", "movie", "medical_services", "school", "category", "monetization_on", "laptop", "trending_up", "card_giftcard")
-        var selectedIcon by remember { mutableStateOf(iconsList.first()) }
-        
-        val colorsList = listOf("#EF4444", "#3B82F6", "#EC4899", "#F59E0B", "#8B5CF6", "#10B981", "#06B6D4", "#6B7280", "#14B8A6", "#F43F5E")
-        var selectedColorHex by remember { mutableStateOf(colorsList.first()) }
+        var selectedIcon by remember { mutableStateOf(CategoryIconHelper.availableIconsList.first()) }
+        var selectedColorHex by remember { mutableStateOf(CategoryIconHelper.availableColorsList.first()) }
 
         AlertDialog(
             onDismissRequest = { showNewCategoryDialog = false },
@@ -682,11 +748,11 @@ fun ManageCategoriesScreen(
                             )
                         )
                         val enteredBudgetAmt = catBudget.trim().toDoubleOrNull() ?: 0.0
-                        val availableBalanceForCreate = (incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget
+                        val availableBalanceForCreate = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget)
                         val adjustedBalance = availableBalanceForCreate - enteredBudgetAmt
                         val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
                         Text(
-                            text = "Remaining Balance: ₹$formattedBalance",
+                            text = "Remaining Balance: $currencySymbol$formattedBalance",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
@@ -716,121 +782,76 @@ fun ManageCategoriesScreen(
                         }
                     }
 
-                    // Select Icon Grid
-                    Text(
-                        text = "Choose an icon", 
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), 
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Pick Icon
+                    Text("Pick Icon", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        iconsList.take(6).forEach { iconName ->
-                            val acts = selectedIcon == iconName
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (acts) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                                    )
-                                    .clickable { selectedIcon = iconName },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = CategoryIconHelper.getIconForName(iconName),
-                                    contentDescription = iconName,
-                                    tint = if (acts) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        iconsList.drop(6).forEach { iconName ->
-                            val acts = selectedIcon == iconName
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (acts) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                                    )
-                                    .clickable { selectedIcon = iconName },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = CategoryIconHelper.getIconForName(iconName),
-                                    contentDescription = iconName,
-                                    tint = if (acts) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                        Box(modifier = Modifier.height(48.dp)) {
+                            androidx.compose.foundation.lazy.LazyRow {
+                                items(CategoryIconHelper.availableIconsList) { item ->
+                                    val isSelected = selectedIcon == item
+                                    val activeHighlightColor = MaterialTheme.colorScheme.primary
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSelected) activeHighlightColor.copy(alpha = if (isDark) 0.25f else 0.12f)
+                                                else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f)
+                                            )
+                                            .border(
+                                                width = 1.5.dp,
+                                                color = if (isSelected) activeHighlightColor else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { selectedIcon = item },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = CategoryIconHelper.getIconForName(item),
+                                            contentDescription = item,
+                                            tint = if (isSelected) activeHighlightColor else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
 
-                    // Select Color Palette Grid
-                    Text(
-                        text = "Choose a color", 
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), 
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Pick Color
+                    Text("Pick Color", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        colorsList.take(5).forEach { colorCode ->
-                            val parsed = CategoryIconHelper.parseColor(colorCode)
-                            val acts = selectedColorHex == colorCode
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(parsed)
-                                    .border(
-                                        width = if (acts) 3.dp else 0.dp,
-                                        color = if (acts) MaterialTheme.colorScheme.onBackground else Color.Transparent,
-                                        shape = CircleShape
+                        Box(modifier = Modifier.height(40.dp)) {
+                            androidx.compose.foundation.lazy.LazyRow {
+                                items(CategoryIconHelper.availableColorsList) { colorHex ->
+                                    val isSelected = selectedColorHex == colorHex
+                                    val c = CategoryIconHelper.parseColor(colorHex)
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(c)
+                                            .border(
+                                                width = 2.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onBackground else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { selectedColorHex = colorHex }
                                     )
-                                    .clickable { selectedColorHex = colorCode }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        colorsList.drop(5).forEach { colorCode ->
-                            val parsed = CategoryIconHelper.parseColor(colorCode)
-                            val acts = selectedColorHex == colorCode
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(parsed)
-                                    .border(
-                                        width = if (acts) 3.dp else 0.dp,
-                                        color = if (acts) MaterialTheme.colorScheme.onBackground else Color.Transparent,
-                                        shape = CircleShape
-                                    )
-                                    .clickable { selectedColorHex = colorCode }
-                            )
+                                }
+                            }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         if (catName.isNotBlank()) {
                             viewModel.addCategory(
@@ -848,7 +869,7 @@ fun ManageCategoriesScreen(
                     },
                     enabled = catName.isNotBlank()
                 ) {
-                    Text("Create", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Create", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -867,6 +888,8 @@ fun ManageCategoriesScreen(
         var renameIsRecurring by remember(categoryToRename.id) { mutableStateOf(isRecInitial) }
         val isSettledInitial = remember(categoryToRename.id) { viewModel.isCategoryBudgetSettledForMonth(categoryToRename.id, homeMonth, homeYear) }
         var renameIsSettled by remember(categoryToRename.id) { mutableStateOf(isSettledInitial) }
+        var renameIcon by remember(categoryToRename.id) { mutableStateOf(categoryToRename.iconName) }
+        var renameColorHex by remember(categoryToRename.id) { mutableStateOf(categoryToRename.colorHex) }
         
         AlertDialog(
             onDismissRequest = { showRenameDialogForCategory = null },
@@ -903,6 +926,73 @@ fun ManageCategoriesScreen(
                             unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                         )
                     )
+
+                    // Pick Icon
+                    Text("Pick Icon", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(modifier = Modifier.height(48.dp)) {
+                            androidx.compose.foundation.lazy.LazyRow {
+                                items(CategoryIconHelper.availableIconsList) { item ->
+                                    val isSelected = renameIcon == item
+                                    val activeHighlightColor = MaterialTheme.colorScheme.primary
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSelected) activeHighlightColor.copy(alpha = if (isDark) 0.25f else 0.12f)
+                                                else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f)
+                                            )
+                                            .border(
+                                                width = 1.5.dp,
+                                                color = if (isSelected) activeHighlightColor else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { renameIcon = item },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = CategoryIconHelper.getIconForName(item),
+                                            contentDescription = item,
+                                            tint = if (isSelected) activeHighlightColor else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Pick Color
+                    Text("Pick Color", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(modifier = Modifier.height(40.dp)) {
+                            androidx.compose.foundation.lazy.LazyRow {
+                                items(CategoryIconHelper.availableColorsList) { colorHex ->
+                                    val isSelected = renameColorHex == colorHex
+                                    val c = CategoryIconHelper.parseColor(colorHex)
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(c)
+                                            .border(
+                                                width = 2.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onBackground else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { renameColorHex = colorHex }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     
                     if (!categoryToRename.isIncome && !categoryToRename.isSavings) {
                         OutlinedTextField(
@@ -925,11 +1015,11 @@ fun ManageCategoriesScreen(
                         val otherBudgetsSum = categories
                             .filter { !it.isIncome && !it.isSavings && it.id != categoryToRename.id }
                             .sumOf { it.monthlyBudget ?: 0.0 }
-                        val availableBalanceForEdit = (incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum
+                        val availableBalanceForEdit = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
                         val adjustedBalance = availableBalanceForEdit - enteredBudgetAmt
                         val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
                         Text(
-                            text = "Remaining Balance: ₹$formattedBalance",
+                            text = "Remaining Balance: $currencySymbol$formattedBalance",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
@@ -984,12 +1074,14 @@ fun ManageCategoriesScreen(
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         if (renameLabel.isNotBlank()) {
                             viewModel.updateCategory(
                                 categoryToRename.copy(
                                     name = renameLabel.trim(),
+                                    iconName = renameIcon,
+                                    colorHex = renameColorHex,
                                     monthlyBudget = if (!categoryToRename.isIncome && !categoryToRename.isSavings && (renameBudget.toDoubleOrNull() ?: 0.0) > 0.0) renameBudget.toDoubleOrNull() else null
                                 ),
                                 isRecurring = renameIsRecurring,
@@ -1001,7 +1093,7 @@ fun ManageCategoriesScreen(
                     },
                     enabled = renameLabel.isNotBlank()
                 ) {
-                    Text("Save", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Save", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

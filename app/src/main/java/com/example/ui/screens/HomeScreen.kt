@@ -73,6 +73,10 @@ fun HomeScreen(
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
 
     val userName by viewModel.userName.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    val currencySymbol = remember(selectedCurrency) {
+        viewModel.getCurrencySymbol()
+    }
     val spentTodayAmount by viewModel.spentToday.collectAsState()
     val spentThisWeekAmount by viewModel.spentThisWeek.collectAsState()
     val recentExpenses by viewModel.expenses.collectAsState()
@@ -177,12 +181,13 @@ fun HomeScreen(
         val otherBudgetsSum = categories
             .filter { !it.isIncome && !it.isSavings && it.id != dialogCat.id }
             .sumOf { it.monthlyBudget ?: 0.0 }
-        val currentRemainingBalance = (incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum
+        val currentRemainingBalance = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
         SetBudgetDialog(
             category = dialogCat,
             initialIsRecurring = isRecInitial,
             initialIsSettled = isSettledInitial,
             availableBalance = currentRemainingBalance,
+            currencySymbol = currencySymbol,
             onDismiss = { showSetBudgetDialogForCategory = null },
             onSave = { newBudget, isRecurring, isSettled ->
                 viewModel.updateCategory(dialogCat.copy(monthlyBudget = newBudget), isRecurring, isSettled)
@@ -191,27 +196,14 @@ fun HomeScreen(
         )
     }
 
-    val showInsights by viewModel.isCoachPanelOpen.collectAsState()
-    val coachInsights by viewModel.coachInsights.collectAsState()
 
-    if (showInsights) {
-        androidx.activity.compose.BackHandler {
-            coroutineScope.launch {
-                focusManager.clearFocus()
-                keyboardController?.hide()
-                delay(80)
-                viewModel.setCoachPanelOpen(false)
-                viewModel.clearCoachError()
-            }
-        }
-    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
 
     val showFullDashboard = searchQuery.isBlank()
 
-    val top5Transactions = remember(homeMonthExpenses, searchQuery, categoriesMap) {
+    val top10Transactions = remember(homeMonthExpenses, searchQuery, categoriesMap) {
         val filtered = if (searchQuery.isBlank()) {
             homeMonthExpenses
         } else {
@@ -222,7 +214,7 @@ fun HomeScreen(
                         exp.amount.toString().contains(searchQuery)
             }
         }
-        filtered.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.id }).take(5)
+        filtered.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.id }).take(10)
     }
 
     val greetingText = remember {
@@ -246,7 +238,7 @@ fun HomeScreen(
     }
 
     fun formatCurrency(amount: Double): String {
-        return "₹" + String.format(Locale.getDefault(), "%,.0f", amount)
+        return currencySymbol + String.format(Locale.getDefault(), "%,.0f", amount)
     }
 
     Box(
@@ -271,7 +263,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 0.dp, bottom = 100.dp)
+                contentPadding = PaddingValues(top = 0.dp, bottom = 180.dp)
             ) {
                 // Unified Modern Top Header Row
                 item {
@@ -491,7 +483,7 @@ fun HomeScreen(
                                         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                                         focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
                                         unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
-                                        focusedBorderColor = if (isDark) Color.White else Color.Black,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
                                         unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
                                         focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
                                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
@@ -505,12 +497,20 @@ fun HomeScreen(
                 // Balance Card
 if (showFullDashboard) item {
     var isBalanceExpanded by remember { mutableStateOf(false) }
+    var isBalanceAmountsVisible by remember { mutableStateOf(true) }
     val totalIncome = incomeThisMonthAmount
     val actualCal = remember { java.util.Calendar.getInstance() }
     val actualMonth = actualCal.get(java.util.Calendar.MONTH) + 1
     val actualYear = actualCal.get(java.util.Calendar.YEAR)
     val todaySpends = if (homeMonth == actualMonth && homeYear == actualYear) spentTodayAmount else 0.0
     val totalSavings = savingsThisMonthAmount
+    val remainingBalance = totalIncome - totalSavings - spentThisMonthAmount
+
+    val displaySpentThisMonth = if (isBalanceAmountsVisible) formatCurrency(spentThisMonthAmount) else "$currencySymbol •••••"
+    val displayTodaySpends = if (isBalanceAmountsVisible) formatCurrency(todaySpends) else "$currencySymbol •••••"
+    val displayTotalIncome = if (isBalanceAmountsVisible) formatCurrency(totalIncome) else "$currencySymbol •••••"
+    val displayTotalSavings = if (isBalanceAmountsVisible) formatCurrency(totalSavings) else "$currencySymbol •••••"
+    val displayRemainingBalance = if (isBalanceAmountsVisible) formatCurrency(remainingBalance) else "$currencySymbol •••••"
 
     val monthsListBack = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     val currentMonthAbbr = monthsListBack.getOrNull(homeMonth - 1) ?: ""
@@ -631,16 +631,41 @@ if (showFullDashboard) item {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text(
-                    text = formatCurrency(spentThisMonthAmount),
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontSize = 44.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        letterSpacing = (-0.03).em
-                    ),
-                    textAlign = TextAlign.Center
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Invisible spacer on the left to perfectly balance the eye button on the right
+                    Spacer(modifier = Modifier.width(36.dp))
+
+                    Text(
+                        text = displaySpentThisMonth,
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontSize = 44.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            letterSpacing = (-0.03).em
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = { isBalanceAmountsVisible = !isBalanceAmountsVisible },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("toggle_balance_visibility")
+                    ) {
+                        Icon(
+                            imageVector = if (isBalanceAmountsVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (isBalanceAmountsVisible) "Hide amounts" else "Show amounts",
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -673,7 +698,7 @@ if (showFullDashboard) item {
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = formatCurrency(todaySpends),
+                            text = displayTodaySpends,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
@@ -704,7 +729,7 @@ if (showFullDashboard) item {
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = formatCurrency(totalIncome),
+                            text = displayTotalIncome,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
@@ -735,7 +760,7 @@ if (showFullDashboard) item {
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = formatCurrency(totalSavings),
+                            text = displayTotalSavings,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
@@ -793,7 +818,6 @@ if (showFullDashboard) item {
                         val incomePct = if (totalIncome > 0.0) 1.0f else 0.0f
                         val savingsPct = if (totalIncome > 0.0) (totalSavings / totalIncome).toFloat().coerceIn(0f, 1f) else 0.0f
                         val spentPct = if (totalIncome > 0.0) (spentThisMonthAmount / totalIncome).toFloat().coerceIn(0f, 1f) else 0.0f
-                        val remainingBalance = totalIncome - totalSavings - spentThisMonthAmount
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -826,7 +850,7 @@ if (showFullDashboard) item {
                                 )
                             }
                             Text(
-                                text = formatCurrency(totalIncome),
+                                text = displayTotalIncome,
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF10B981),
@@ -868,7 +892,7 @@ if (showFullDashboard) item {
                                 )
                             }
                             Text(
-                                text = formatCurrency(totalSavings),
+                                text = displayTotalSavings,
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF5B57FF),
@@ -910,7 +934,7 @@ if (showFullDashboard) item {
                                 )
                             }
                             Text(
-                                text = formatCurrency(spentThisMonthAmount),
+                                text = displaySpentThisMonth,
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFFEF4444),
@@ -964,7 +988,7 @@ if (showFullDashboard) item {
                                 )
                             }
                             Text(
-                                text = formatCurrency(remainingBalance),
+                                text = displayRemainingBalance,
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontWeight = FontWeight.Black,
                                     fontSize = 24.sp,
@@ -1718,7 +1742,7 @@ if (showFullDashboard) item {
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            if (top5Transactions.isEmpty()) {
+                            if (top10Transactions.isEmpty()) {
                                 // Empty State Illustration inside the card
                                 Column(
                                     modifier = Modifier
@@ -1751,12 +1775,12 @@ if (showFullDashboard) item {
                                 }
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    top5Transactions.forEachIndexed { index, expense ->
+                                    top10Transactions.forEachIndexed { index, expense ->
                                         val category = categoriesMap[expense.categoryId]
                                         ExpenseItemRow(
                                             expense = expense,
                                             category = category,
-                                            onEdit = { onEditExpense(expense) },
+                                            currencySymbol = currencySymbol, onEdit = { onEditExpense(expense) },
                                             onDelete = {
                                                 val deletedItem = expense
                                                 viewModel.deleteExpense(expense)
@@ -1778,7 +1802,7 @@ if (showFullDashboard) item {
                                                 }
                                             }
                                         )
-                                        if (index < top5Transactions.lastIndex) {
+                                        if (index < top10Transactions.lastIndex) {
                                             HorizontalDivider(
                                                 modifier = Modifier.padding(vertical = 4.dp),
                                                 thickness = 1.dp,
@@ -1804,7 +1828,8 @@ if (showFullDashboard) item {
                 animationSpec = androidx.compose.animation.core.tween(durationMillis = 300)
             ) + fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = 300)),
             modifier = Modifier.fillMaxSize()
-        ) {
+        ) {}
+        /*
             // A dark/light responsive backdrop layer to isolate context
             Box(
                 modifier = Modifier
@@ -2188,7 +2213,7 @@ if (showFullDashboard) item {
                                                          }
                                                          Spacer(modifier = Modifier.height(2.dp))
                                                          Text(
-                                                             text = "₹${"%,.0f".format(incomeThisMonthAmount)}",
+                                                             text = "$currencySymbol${"%,.0f".format(incomeThisMonthAmount)}",
                                                              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = 15.sp),
                                                              color = Color(0xFF10B981)
                                                          )
@@ -2211,7 +2236,7 @@ if (showFullDashboard) item {
                                                          }
                                                          Spacer(modifier = Modifier.height(2.dp))
                                                          Text(
-                                                             text = "₹${"%,.0f".format(spentThisMonthAmount)}",
+                                                             text = "$currencySymbol${"%,.0f".format(spentThisMonthAmount)}",
                                                              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = 15.sp),
                                                              color = Color(0xFFEF4444)
                                                          )
@@ -2235,7 +2260,7 @@ if (showFullDashboard) item {
                                                          }
                                                          Spacer(modifier = Modifier.height(2.dp))
                                                          Text(
-                                                             text = "₹${"%,.0f".format(savingsAmount)}",
+                                                             text = "$currencySymbol${"%,.0f".format(savingsAmount)}",
                                                              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = 15.sp),
                                                              color = if (savingsAmount >= 0) MaterialTheme.colorScheme.primary else Color(0xFFEF4444)
                                                          )
@@ -2535,7 +2560,7 @@ if (showFullDashboard) item {
                                             
                                             val suggestions = listOf(
                                                 "How can I improve my savings rate this month?",
-                                                "Can I afford to purchase a ₹5,000 treat?",
+                                                "Can I afford to purchase a ${currencySymbol}5,000 treat?",
                                                 "Estimate a weekly restaurant budget limit based on my spending.",
                                                 "Give me a simple 3-step action list to optimize my account."
                                             )
@@ -2695,7 +2720,7 @@ if (showFullDashboard) item {
                                         modifier = Modifier.weight(1f),
                                         placeholder = {
                                             Text(
-                                                "Ask: can I afford a ₹1500 dinner?",
+                                                "Ask: can I afford a ${currencySymbol}1500 dinner?",
                                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
                                             )
@@ -2738,6 +2763,7 @@ if (showFullDashboard) item {
                 }
             }
         }
+        */
     }
 }
 
@@ -2746,7 +2772,8 @@ fun ExpenseItemRow(
     expense: Expense,
     category: Category?,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    currencySymbol: String = "₹"
 ) {
     var showDialog by remember { mutableStateOf(false) }
 
@@ -2759,7 +2786,7 @@ fun ExpenseItemRow(
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = { Text("Transaction Options") },
-            text = { Text("What action would you like to perform for this $typeLabel of ₹${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
+            text = { Text("What action would you like to perform for this $typeLabel of $currencySymbol${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
             confirmButton = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2882,9 +2909,9 @@ fun ExpenseItemRow(
 
         // Amount on the right side
         val amountLabel = when {
-            expense.isSavings -> "₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            expense.isIncome -> "+₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            else -> "-₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
         }
         val amountColor = when {
             expense.isSavings -> Color(0xFF3B82F6)

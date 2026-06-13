@@ -9,6 +9,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -44,13 +48,16 @@ import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalAnimationApi::class)
+@OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MonthlyReportScreen(
     viewModel: TrackerViewModel
 ) {
-    val reportExpenses by viewModel.reportExpenses.collectAsState()
-    val totalReportSpent by viewModel.totalReportSpent.collectAsState()
+    val allExpenses by viewModel.expenses.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    val currencySymbol = remember(selectedCurrency) {
+        viewModel.getCurrencySymbol()
+    }
     val reportMonth by viewModel.reportMonth.collectAsState()
     val reportYear by viewModel.reportYear.collectAsState()
     val categoriesTrigger by viewModel.categoriesTrigger.collectAsState()
@@ -62,31 +69,117 @@ fun MonthlyReportScreen(
     val selectedAnalyticsTab by viewModel.selectedAnalyticsTab.collectAsState()
     val isTransactions = selectedAnalyticsTab == "transactions"
 
-    val categoriesMap = remember(categories, categoriesTrigger) { categories.associateBy { it.id } }
+    var currentFilter by remember { mutableStateOf<ReportFilter>(ReportFilter.MonthAndYear) }
+    var showFilterBottomSheet by remember { mutableStateOf(false) }
+    var tempFilter by remember(showFilterBottomSheet) { mutableStateOf(currentFilter) }
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var customStartDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var customEndDate by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    val budgetedCategories = remember(categories) {
-        categories.filter { !it.isIncome && !it.isSavings && (it.monthlyBudget ?: 0.0) > 0.0 }
+    var showSetBudgetDialogForCategory by remember { mutableStateOf<Category?>(null) }
+
+    // List of months spanned by the filter
+    val spannedMonths = remember(currentFilter, reportMonth, reportYear, allExpenses) {
+        val list = mutableListOf<Pair<Int, Int>>()
+        when (currentFilter) {
+            is ReportFilter.MonthAndYear -> {
+                list.add(Pair(reportMonth, reportYear))
+            }
+            is ReportFilter.Last3Months -> {
+                for (i in 0..2) {
+                    val tempCal = Calendar.getInstance()
+                    tempCal.add(Calendar.MONTH, -i)
+                    list.add(Pair(tempCal.get(Calendar.MONTH) + 1, tempCal.get(Calendar.YEAR)))
+                }
+            }
+            is ReportFilter.Last6Months -> {
+                for (i in 0..5) {
+                    val tempCal = Calendar.getInstance()
+                    tempCal.add(Calendar.MONTH, -i)
+                    list.add(Pair(tempCal.get(Calendar.MONTH) + 1, tempCal.get(Calendar.YEAR)))
+                }
+            }
+            is ReportFilter.AllTime -> {
+                val monthsSet = mutableSetOf<Pair<Int, Int>>()
+                allExpenses.forEach { exp ->
+                    val calExp = Calendar.getInstance().apply { timeInMillis = exp.date }
+                    monthsSet.add(Pair(calExp.get(Calendar.MONTH) + 1, calExp.get(Calendar.YEAR)))
+                }
+                if (monthsSet.isEmpty()) {
+                    monthsSet.add(Pair(reportMonth, reportYear))
+                }
+                list.addAll(monthsSet)
+            }
+            is ReportFilter.CustomRange -> {
+                val range = currentFilter as ReportFilter.CustomRange
+                val startCal = Calendar.getInstance().apply { timeInMillis = range.startDate }
+                val endCal = Calendar.getInstance().apply { timeInMillis = range.endDate }
+                startCal.set(Calendar.DAY_OF_MONTH, 1)
+                while (!startCal.after(endCal)) {
+                    list.add(Pair(startCal.get(Calendar.MONTH) + 1, startCal.get(Calendar.YEAR)))
+                    startCal.add(Calendar.MONTH, 1)
+                }
+                if (list.isEmpty()) {
+                    list.add(Pair(reportMonth, reportYear))
+                }
+            }
+        }
+        list
     }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchExpanded by remember { mutableStateOf(false) }
-    var showSetBudgetDialogForCategory by remember { mutableStateOf<Category?>(null) }
+    // Dynamic category mapping with summed budgets for multi-month spanned filters
+    val categoriesWithBudgets = remember(categories, spannedMonths, categoriesTrigger) {
+        categories.map { baseCat ->
+            var totalBudget: Double? = null
+            spannedMonths.forEach { (m, y) ->
+                val b = viewModel.getCategoryBudgetForMonth(baseCat.id, m, y)
+                if (b != null) {
+                    totalBudget = (totalBudget ?: 0.0) + b
+                }
+            }
+            baseCat.copy(monthlyBudget = totalBudget)
+        }
+    }
+
+    val categoriesMap = remember(categoriesWithBudgets) {
+        categoriesWithBudgets.associateBy { it.id }
+    }
+
+    val budgetedCategories = remember(categoriesWithBudgets) {
+        categoriesWithBudgets.filter { !it.isIncome && !it.isSavings && (it.monthlyBudget ?: 0.0) > 0.0 }
+    }
+
+    val filteredIncome = remember(allExpenses, spannedMonths) {
+        allExpenses.filter {
+            val cal = Calendar.getInstance().apply { timeInMillis = it.date }
+            it.isIncome && !it.isSavings && (Pair(cal.get(Calendar.MONTH) + 1, cal.get(Calendar.YEAR)) in spannedMonths)
+        }.sumOf { it.amount }
+    }
+
+    val filteredSavings = remember(allExpenses, spannedMonths) {
+        allExpenses.filter {
+            val cal = Calendar.getInstance().apply { timeInMillis = it.date }
+            it.isSavings && (Pair(cal.get(Calendar.MONTH) + 1, cal.get(Calendar.YEAR)) in spannedMonths)
+        }.sumOf { it.amount }
+    }
 
     val dialogCat = showSetBudgetDialogForCategory
     if (dialogCat != null) {
         val isRecInitial = viewModel.isCategoryBudgetRecurringForMonth(dialogCat.id, reportMonth, reportYear)
         val isSettledInitial = viewModel.isCategoryBudgetSettledForMonth(dialogCat.id, reportMonth, reportYear)
-        val reportIncome = reportExpenses.filter { it.isIncome && !it.isSavings }.sumOf { it.amount }
-        val reportSavings = reportExpenses.filter { it.isSavings }.sumOf { it.amount }
-        val otherBudgetsSum = categories
+        
+        val otherBudgetsSum = categoriesWithBudgets
             .filter { !it.isIncome && !it.isSavings && it.id != dialogCat.id }
             .sumOf { it.monthlyBudget ?: 0.0 }
-        val reportRemainingBalance = (reportIncome - reportSavings) - otherBudgetsSum
+        val reportRemainingBalance = kotlin.math.round((filteredIncome - filteredSavings) - otherBudgetsSum)
+        
         SetBudgetDialog(
             category = dialogCat,
             initialIsRecurring = isRecInitial,
             initialIsSettled = isSettledInitial,
             availableBalance = reportRemainingBalance,
+            currencySymbol = currencySymbol,
             onDismiss = { showSetBudgetDialogForCategory = null },
             onSave = { newBudget, isRecurring, isSettled ->
                 viewModel.updateCategoryForMonth(
@@ -103,15 +196,46 @@ fun MonthlyReportScreen(
 
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
 
-    val filteredExpenses = remember(reportExpenses, searchQuery, categoriesMap) {
-        if (searchQuery.isBlank()) {
-            reportExpenses
-        } else {
-            reportExpenses.filter { exp ->
-                val categoryName = categoriesMap[exp.categoryId]?.name ?: ""
-                exp.description.contains(searchQuery, ignoreCase = true) ||
-                        categoryName.contains(searchQuery, ignoreCase = true) ||
-                        exp.amount.toString().contains(searchQuery)
+    val filteredExpenses = remember(allExpenses, currentFilter, reportMonth, reportYear) {
+        val cal = Calendar.getInstance()
+        val nowTime = cal.timeInMillis
+        when (currentFilter) {
+            is ReportFilter.MonthAndYear -> {
+                allExpenses.filter { exp ->
+                    val calExp = Calendar.getInstance().apply { timeInMillis = exp.date }
+                    (calExp.get(Calendar.MONTH) + 1) == reportMonth && calExp.get(Calendar.YEAR) == reportYear
+                }
+            }
+            is ReportFilter.Last3Months -> {
+                cal.add(Calendar.MONTH, -3)
+                val startTime = cal.timeInMillis
+                allExpenses.filter { it.date in startTime..nowTime }
+            }
+            is ReportFilter.Last6Months -> {
+                cal.add(Calendar.MONTH, -6)
+                val startTime = cal.timeInMillis
+                allExpenses.filter { it.date in startTime..nowTime }
+            }
+            is ReportFilter.AllTime -> {
+                allExpenses
+            }
+            is ReportFilter.CustomRange -> {
+                val range = currentFilter as ReportFilter.CustomRange
+                val startOfDay = Calendar.getInstance().apply {
+                    timeInMillis = range.startDate
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                val endOfDay = Calendar.getInstance().apply {
+                    timeInMillis = range.endDate
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }.timeInMillis
+                allExpenses.filter { it.date in startOfDay..endOfDay }
             }
         }
     }
@@ -157,7 +281,7 @@ fun MonthlyReportScreen(
     }
 
     fun formatCurrency(amount: Double): String {
-        return "₹" + String.format(Locale.US, "%,.2f", amount)
+        return currencySymbol + String.format(Locale.US, "%,.2f", amount)
     }
 
     Column(
@@ -165,7 +289,7 @@ fun MonthlyReportScreen(
             .fillMaxSize()
             .background(Color.Transparent)
     ) {
-        // Top Main Header Row with Analytics title styled centrally, month selectors Left, search button Right
+        // Top Main Header Row with Analytics title styled centrally, month selectors/Period Left, filter button Right
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -173,7 +297,7 @@ fun MonthlyReportScreen(
                 .height(48.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Left: Month Selector (Dropdown Menu)
+            // Left: Month / Date Range Selector
             var showMonthDropdown by remember { mutableStateOf(false) }
             val shortMonthsList = listOf(
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -183,21 +307,36 @@ fun MonthlyReportScreen(
             val currentCalendar = remember { Calendar.getInstance() }
             val systemCurrentMonth = currentCalendar.get(Calendar.MONTH) + 1
 
+            val formatDateSimple = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+            val currentPeriodLabel = when (currentFilter) {
+                is ReportFilter.MonthAndYear -> currentMonthShortLabel
+                is ReportFilter.Last3Months -> "Last 3M"
+                is ReportFilter.Last6Months -> "Last 6M"
+                is ReportFilter.AllTime -> "All Time"
+                is ReportFilter.CustomRange -> {
+                    val range = currentFilter as ReportFilter.CustomRange
+                    "${formatDateSimple.format(Date(range.startDate))} - ${formatDateSimple.format(Date(range.endDate))}"
+                }
+            }
+
             Box(
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
+                        .height(44.dp)
+                        .clip(CircleShape)
                         .border(
                             width = 1.dp,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(22.dp)
+                            shape = CircleShape
                         )
-                        .clickable { showMonthDropdown = true }
-                        .padding(vertical = 8.dp, horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.Start
+                        .clickable {
+                            showMonthDropdown = true
+                        }
+                        .padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.CalendarMonth,
@@ -207,7 +346,7 @@ fun MonthlyReportScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = currentMonthShortLabel,
+                        text = currentPeriodLabel,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -259,6 +398,7 @@ fun MonthlyReportScreen(
                             },
                             onClick = {
                                 viewModel.setReportMonthAndYear(index + 1, reportYear)
+                                currentFilter = ReportFilter.MonthAndYear
                                 showMonthDropdown = false
                             }
                         )
@@ -277,7 +417,7 @@ fun MonthlyReportScreen(
                 modifier = Modifier.align(Alignment.Center)
             )
 
-            // Right: Search Button in custom rounded box with stroke
+            // Right: Filter Button (replaces search button)
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -289,75 +429,37 @@ fun MonthlyReportScreen(
                     )
                     .clip(CircleShape)
                     .clickable {
-                        isSearchExpanded = !isSearchExpanded
-                        if (!isSearchExpanded) {
-                            searchQuery = ""
-                        }
-                    },
+                        showFilterBottomSheet = true
+                    }
+                    .testTag("analytics_filter_button"),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                    contentDescription = "Toggle search",
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = "Filter period",
                     tint = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.size(20.dp)
                 )
-            }
-        }
-
-        // Search Field with smooth reveal
-        AnimatedVisibility(
-            visible = isSearchExpanded,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = {
-                    Text(
-                        text = "Search monthly categories...",
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "SearchIcon",
-                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+                if (currentFilter !is ReportFilter.MonthAndYear) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-8).dp, y = 8.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = CircleShape
                             )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = CircleShape,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                    focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
-                    focusedBorderColor = if (isDark) Color.White else Color.Black,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
-                    focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
-                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
-                )
-            )
+                    )
+                }
+            }
         }
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = 100.dp)
+            contentPadding = PaddingValues(bottom = 140.dp)
         ) {
             // REPORT SECTION CONTENT (Pie Chart + Category Breakdown)
             item {
@@ -366,18 +468,64 @@ fun MonthlyReportScreen(
                     enter = fadeIn() + expandVertically(),
                     exit = fadeOut() + shrinkVertically()
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         val totalBudget = budgetedCategories.sumOf { it.monthlyBudget ?: 0.0 }
+                        val chartTotalAmount = if (totalBudget > 0.0) totalBudget else filteredIncome
+                        
+                        // Large, square-constrained donut chart that maximizes visual impact as a perfect full circle
                         DonutChartWidget(
                             categorySpendList = categorySpendList,
                             totalSpent = displayTotalSpent,
-                            totalBudget = totalBudget
+                            totalBudget = chartTotalAmount,
+                            currencySymbol = currencySymbol,
+                            modifier = Modifier
+                                .size(240.dp)
+                                .aspectRatio(1f)
                         )
+                        
+                        // Elegant spacing between chart and legend
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        // Categories Legend List with full proportional width to prevent text overflow
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            categorySpendList.forEach { spend ->
+                                val pct = if (displayTotalSpent > 0.0) (spend.amount / displayTotalSpent) * 100 else 0.0
+                                val color = CategoryIconHelper.parseColor(spend.colorHex)
+                                
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // Custom color dot
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(color)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${spend.categoryName} - ${pct.roundToInt()}%",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -429,6 +577,7 @@ fun MonthlyReportScreen(
                             categorySpendList = categorySpendList,
                             totalSpent = displayTotalSpent,
                             categoriesMap = categoriesMap,
+                            currencySymbol = currencySymbol,
                             onSetBudgetClick = { showSetBudgetDialogForCategory = it },
                             isCategoryRecurring = { catId -> viewModel.isCategoryBudgetRecurringForMonth(catId, reportMonth, reportYear) },
                             isCategorySettled = { catId -> viewModel.isCategoryBudgetSettledForMonth(catId, reportMonth, reportYear) },
@@ -440,12 +589,277 @@ fun MonthlyReportScreen(
             }
         }
     }
+
+    if (showFilterBottomSheet) {
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showFilterBottomSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "Filter Analytics",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    val options = listOf(
+                        Pair(ReportFilter.MonthAndYear, "This Month (${monthName} ${reportYear})"),
+                        Pair(ReportFilter.Last3Months, "Last 3 Months"),
+                        Pair(ReportFilter.Last6Months, "Last 6 Months"),
+                        Pair(ReportFilter.AllTime, "All Time"),
+                        Pair(ReportFilter.CustomRange(customStartDate, customEndDate), "Custom Date Range")
+                    )
+                    
+                    options.forEach { (option, label) ->
+                        val isSelected = when (option) {
+                            ReportFilter.MonthAndYear -> tempFilter is ReportFilter.MonthAndYear
+                            ReportFilter.Last3Months -> tempFilter is ReportFilter.Last3Months
+                            ReportFilter.Last6Months -> tempFilter is ReportFilter.Last6Months
+                            ReportFilter.AllTime -> tempFilter is ReportFilter.AllTime
+                            is ReportFilter.CustomRange -> tempFilter is ReportFilter.CustomRange
+                        }
+                        
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    tempFilter = if (option is ReportFilter.CustomRange) {
+                                        ReportFilter.CustomRange(customStartDate, customEndDate)
+                                    } else {
+                                        option
+                                    }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        tempFilter = if (option is ReportFilter.CustomRange) {
+                                            ReportFilter.CustomRange(customStartDate, customEndDate)
+                                        } else {
+                                            option
+                                        }
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                                
+                                Spacer(modifier = Modifier.width(6.dp))
+                                
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            
+                            if (option is ReportFilter.CustomRange && isSelected) {
+                                val formatDateRange = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 36.dp, top = 2.dp, bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Start Date Field
+                                    Surface(
+                                        onClick = { showStartDatePicker = true },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Start Date",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = formatDateRange.format(Date(customStartDate)),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.CalendarToday,
+                                                    contentDescription = "Start Date",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                        }
+                                    }
+    
+                                    // End Date Field
+                                    Surface(
+                                        onClick = { showEndDatePicker = true },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = "End Date",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = formatDateRange.format(Date(customEndDate)),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.CalendarToday,
+                                                    contentDescription = "End Date",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(14.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            tempFilter = ReportFilter.MonthAndYear
+                            currentFilter = ReportFilter.MonthAndYear
+                            showFilterBottomSheet = false
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Clear Filter",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    
+                    Button(
+                        onClick = {
+                            currentFilter = tempFilter
+                            showFilterBottomSheet = false
+                        },
+                        modifier = Modifier.weight(1.5f),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Apply Filter",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showStartDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = customStartDate)
+        DatePickerDialog(
+            onDismissRequest = { showStartDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    customStartDate = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    tempFilter = ReportFilter.CustomRange(customStartDate, customEndDate)
+                    showStartDatePicker = false
+                }) { Text("OK", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartDatePicker = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)) }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showEndDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = customEndDate)
+        DatePickerDialog(
+            onDismissRequest = { showEndDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    customEndDate = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    tempFilter = ReportFilter.CustomRange(customStartDate, customEndDate)
+                    showEndDatePicker = false
+                }) { Text("OK", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndDatePicker = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)) }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+}
+
+sealed class ReportFilter {
+    object MonthAndYear : ReportFilter()
+    object Last3Months : ReportFilter()
+    object Last6Months : ReportFilter()
+    object AllTime : ReportFilter()
+    data class CustomRange(val startDate: Long, val endDate: Long) : ReportFilter()
 }
 
 @Composable
 fun ReportExpenseRow(
     expense: Expense,
-    category: Category?
+    category: Category?,
+    currencySymbol: String = "₹"
 ) {
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
     Card(
@@ -520,9 +934,9 @@ fun ReportExpenseRow(
             }
 
             val amountLabel = when {
-                expense.isSavings -> "₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-                expense.isIncome -> "+₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-                else -> "-₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+                expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+                expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+                else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
             }
             val amountColor = when {
                 expense.isSavings -> Color(0xFF3B82F6)
@@ -545,7 +959,9 @@ fun ReportExpenseRow(
 fun DonutChartWidget(
     categorySpendList: List<CategorySpend>,
     totalSpent: Double,
-    totalBudget: Double
+    totalBudget: Double,
+    modifier: Modifier = Modifier,
+    currencySymbol: String = "₹"
 ) {
     val animateSweep = remember { Animatable(0f) }
     val isDark = MaterialTheme.colorScheme.background.red < 0.2f
@@ -558,8 +974,7 @@ fun DonutChartWidget(
     }
 
     Box(
-        modifier = Modifier
-            .size(230.dp)
+        modifier = modifier
             .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -567,33 +982,83 @@ fun DonutChartWidget(
         val density = LocalDensity.current
 
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidthPx = 20.dp.toPx()
+            val strokeWidthPx = 18.dp.toPx()
+            val diameter = kotlin.math.min(size.width, size.height)
             val centerX = size.width / 2
             val centerY = size.height / 2
-            val radius = (size.width - strokeWidthPx) / 2
+            val radius = (diameter - strokeWidthPx) / 2
+            
+            val topLeft = Offset(centerX - radius, centerY - radius)
+            val arcSize = Size(radius * 2, radius * 2)
 
             // Draw clean background grey track
             drawCircle(
                 color = labelColor.copy(alpha = 0.05f),
                 radius = radius,
+                center = Offset(centerX, centerY),
                 style = Stroke(width = strokeWidthPx)
             )
 
-            var startAngle = -90f
-            for (spend in categorySpendList) {
-                val percentage = if (totalSpent > 0.0) spend.amount / totalSpent else 0.0
-                val sweepAngle = (percentage * 360f).toFloat() * animateSweep.value
-                val color = CategoryIconHelper.parseColor(spend.colorHex)
+            val activeSpends = categorySpendList.filter { it.amount > 0 }
+            val N = activeSpends.size
 
-                if (sweepAngle > 0.1f) {
+            if (N == 1) {
+                val spend = activeSpends[0]
+                val color = CategoryIconHelper.parseColor(spend.colorHex)
+                drawArc(
+                    color = color,
+                    startAngle = -90f,
+                    sweepAngle = 360f * animateSweep.value,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
+                )
+            } else if (N > 1) {
+                val capExt = (strokeWidthPx / (2f * radius)) * (180f / kotlin.math.PI.toFloat())
+                val targetGap = 5f // clean visual gap in degrees
+                val minSweep = 3f // minimum visual sweep in degrees
+                val minSegmentSpace = minSweep + 2f * capExt + targetGap
+
+                // Check if total minimum space exceeds 340 degrees
+                val totalMinSpaceNeeded = N * minSegmentSpace
+                val (adjustedMinSweep, adjustedTargetGap) = if (totalMinSpaceNeeded > 340f) {
+                    val factor = 340f / totalMinSpaceNeeded
+                    Pair(minSweep * factor, targetGap * factor)
+                } else {
+                    Pair(minSweep, targetGap)
+                }
+                
+                val finalMinSegmentSpace = adjustedMinSweep + 2f * capExt + adjustedTargetGap
+                val remainingAngleToDistribute = 360f - (N * finalMinSegmentSpace)
+                val totalActiveSpendsAmount = activeSpends.sumOf { it.amount }
+
+                val allocatedAngles = activeSpends.map { spend ->
+                    val proportion = if (totalActiveSpendsAmount > 0.0) spend.amount / totalActiveSpendsAmount else 0.0
+                    val proportionalAngle = (proportion * remainingAngleToDistribute).toFloat()
+                    finalMinSegmentSpace + proportionalAngle
+                }
+
+                var currentStartAngle = -90f
+                for (i in activeSpends.indices) {
+                    val spend = activeSpends[i]
+                    val allocatedAngle = allocatedAngles[i] * animateSweep.value
+                    val color = CategoryIconHelper.parseColor(spend.colorHex)
+
+                    val drawSweepAngle = kotlin.math.max(0.1f, allocatedAngle - 2f * capExt - adjustedTargetGap)
+                    val drawStartAngle = currentStartAngle + capExt + (adjustedTargetGap / 2f)
+
                     drawArc(
                         color = color,
-                        startAngle = startAngle,
-                        sweepAngle = sweepAngle,
+                        startAngle = drawStartAngle,
+                        sweepAngle = drawSweepAngle,
                         useCenter = false,
-                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
                     )
-                    startAngle += sweepAngle
+
+                    currentStartAngle += allocatedAngles[i]
                 }
             }
         }
@@ -602,12 +1067,12 @@ fun DonutChartWidget(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
             val budgetPercent = if (totalBudget > 0.0) (totalSpent / totalBudget) * 100 else 0.0
             
-            // Percentage Pill (like the reference illustration percent pill inside the donut chart)
-            if (budgetPercent > 0.0) {
+            // Percentage Pill
+            if (totalBudget > 0.0) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(100.dp))
@@ -617,8 +1082,8 @@ fun DonutChartWidget(
                     Text(
                         text = "${budgetPercent.roundToInt()}%",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 11.sp,
+                             fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
                         )
                     )
@@ -627,17 +1092,17 @@ fun DonutChartWidget(
             }
 
             Text(
-                text = "You've Spent",
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                text = "Spent",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium, fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Large, bold total spent curreny display
+            // Large, bold total spent display inside donut
             Text(
-                text = "₹" + String.format(Locale.US, "%,.0f", totalSpent),
-                style = MaterialTheme.typography.titleLarge.copy(
+                text = currencySymbol + String.format(Locale.US, "%,.0f", totalSpent),
+                style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 22.sp,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -646,17 +1111,51 @@ fun DonutChartWidget(
             )
 
             if (totalBudget > 0.0) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "of ₹" + String.format(Locale.US, "%,.0f", totalBudget),
+                    text = "of " + currencySymbol + String.format(Locale.US, "%,.0f", totalBudget),
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                         fontWeight = FontWeight.Medium
                     )
                 )
             }
         }
+    }
+}
+
+@Composable
+fun BudgetProgressBar(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    var animationPlayed by remember { mutableStateOf(false) }
+    val animatedProgress by animateFloatAsState(
+        targetValue = if (animationPlayed) progress else 0f,
+        animationSpec = tween(durationMillis = 800),
+        label = "BudgetProgress"
+    )
+
+    LaunchedEffect(progress) {
+        animationPlayed = true
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(animatedProgress)
+                .clip(RoundedCornerShape(4.dp))
+                .background(color)
+        )
     }
 }
 
@@ -669,7 +1168,8 @@ fun CategoryLegendWidget(
     isCategoryRecurring: (Int) -> Boolean,
     isCategorySettled: (Int) -> Boolean,
     onToggleCategorySettled: (Int, Boolean) -> Unit,
-    categoriesTrigger: Long = 0L
+    categoriesTrigger: Long = 0L,
+    currencySymbol: String = "₹"
 ) {
     val (settledList, unsettledList) = remember(categorySpendList, categoriesMap, categoriesTrigger) {
         categorySpendList.partition { spend ->
@@ -700,7 +1200,7 @@ fun CategoryLegendWidget(
     }
 
     fun formatCurrency(amount: Double): String {
-        return "₹" + String.format(Locale.getDefault(), "%,.0f", amount)
+        return currencySymbol + String.format(Locale.getDefault(), "%,.0f", amount)
     }
 
     Column(
@@ -732,11 +1232,7 @@ fun CategoryLegendWidget(
                     val isRecurring = isCategoryRecurring(category.id)
                     val isOverBudget = spend.amount > catBudget
 
-                    val catColor = if (isRecurring) Color(0xFF3B82F6) else when {
-                        catPct < 0.70f -> Color(0xFF10B981) // Green for good condition (<70%)
-                        catPct < 1.00f -> Color(0xFFF59E0B) // Orange for about to exceed (70% - 99%)
-                        else -> Color(0xFFEF4444)             // Red for reached/exceeded (>=100%)
-                    }
+                    val catColor = iconColor
 
                     Card(
                         modifier = Modifier
@@ -788,51 +1284,57 @@ fun CategoryLegendWidget(
                                     }
                                 }
 
+                                val totalPct = if (totalSpent > 0.0) (spend.amount / totalSpent) * 100 else 0.0
                                 Text(
-                                    text = "${formatCurrency(spend.amount)} / ${formatCurrency(catBudget)}",
+                                    text = "${totalPct.roundToInt()}%",
                                     style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        fontWeight = FontWeight.Bold,
+                                        color = iconColor,
                                         fontSize = 13.sp
                                     )
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             // Progress Bar (Height 8.dp)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(catPct.coerceIn(0f, 1f))
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(catColor)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // Remaining/Over label
-                            val rem = kotlin.math.max(0.0, catBudget - spend.amount)
-                            val remainingText = if (isOverBudget) {
-                                "${formatCurrency(spend.amount - catBudget)} over budget"
-                            } else {
-                                "${formatCurrency(rem)} remaining"
-                            }
-                            Text(
-                                text = remainingText,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontSize = 12.sp,
-                                    color = if (isOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
-                                )
+                            BudgetProgressBar(
+                                progress = catPct.coerceIn(0f, 1f),
+                                color = catColor
                             )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Remaining/Over details under the progress bar: remaining amount on the left, spent/budget fraction on the right
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val rem = kotlin.math.max(0.0, catBudget - spend.amount)
+                                val remainingText = if (isOverBudget) {
+                                    "${formatCurrency(spend.amount - catBudget)} over budget"
+                                } else {
+                                    "${formatCurrency(rem)} remaining"
+                                }
+
+                                Text(
+                                    text = remainingText,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 12.sp,
+                                        color = if (isOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                )
+
+                                Text(
+                                    text = "${formatCurrency(spend.amount)} / ${formatCurrency(catBudget)}",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -1071,7 +1573,8 @@ fun CategoryLegendWidget(
 
 @Composable
 fun BarChartWidget(
-    weekSpends: List<Double>
+    weekSpends: List<Double>,
+    currencySymbol: String = "₹"
 ) {
     val animateVal = remember { Animatable(0f) }
 
@@ -1104,7 +1607,7 @@ fun BarChartWidget(
             ) {
                 // Label (Amount above the bar)
                 Text(
-                    text = "₹" + String.format(Locale.US, "%,.0f", spent),
+                    text = currencySymbol + String.format(Locale.US, "%,.0f", spent),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp

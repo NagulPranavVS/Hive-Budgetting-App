@@ -42,6 +42,10 @@ fun TransactionsScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val allExpenses by viewModel.reportExpenses.collectAsState()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsState()
+    val currencySymbol = remember(selectedCurrency) {
+        viewModel.getCurrencySymbol()
+    }
     val categories by viewModel.categories.collectAsState()
     val categoriesMap = remember(categories) { categories.associateBy { it.id } }
 
@@ -113,15 +117,16 @@ fun TransactionsScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(22.dp))
+                            .height(44.dp)
+                            .clip(CircleShape)
                             .border(
                                 width = 1.dp,
                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(22.dp)
+                                shape = CircleShape
                             )
                             .clickable { showMonthDropdown = true }
-                            .padding(vertical = 8.dp, horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.Start
+                            .padding(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.CalendarMonth,
@@ -268,7 +273,7 @@ fun TransactionsScreen(
                         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                         focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
                         unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
-                        focusedBorderColor = if (isDark) Color.White else Color.Black,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
                         focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
@@ -359,23 +364,66 @@ fun TransactionsScreen(
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 180.dp)
                 ) {
                     groupedExpenses.forEach { (dateHeader, expenses) ->
                         // Header item for the date
                         item(key = "header_$dateHeader") {
-                            Text(
-                                text = dateHeader,
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    letterSpacing = 0.5.sp
-                                ),
-                                color = MaterialTheme.colorScheme.onBackground,
+                            // Extract distinct Day (e.g. "Monday") and Date (e.g. "8 June 2026")
+                            val parts = dateHeader.split(", ")
+                            val (dayLabel, dateLabel) = if (parts.size == 2) {
+                                parts[0] to parts[1]
+                            } else {
+                                val firstExpenseDate = expenses.firstOrNull()?.date ?: System.currentTimeMillis()
+                                val formattedDate = SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).format(Date(firstExpenseDate))
+                                dateHeader to formattedDate
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 18.dp, bottom = 6.dp)
-                            )
+                                    .padding(top = 22.dp, bottom = 8.dp)
+                            ) {
+                                // Subtle colored indicator pill at the start to anchor the header section
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 3.dp, height = 16.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                // Day Name (Today, Yesterday, Monday, etc.)
+                                Text(
+                                    text = dayLabel,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        letterSpacing = 0.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                // Muted Bullet divider
+                                Text(
+                                    text = "•",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                // Exact Calendar Date (e.g., 8 June 2026)
+                                Text(
+                                    text = dateLabel,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Normal,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 0.2.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                )
+                            }
                         }
 
                         items(expenses, key = { it.id }) { expense ->
@@ -383,7 +431,7 @@ fun TransactionsScreen(
                             TransactionScreenRowItem(
                                 expense = expense,
                                 category = category,
-                                onEdit = { onEditExpense(expense) },
+                                currencySymbol = currencySymbol, onEdit = { onEditExpense(expense) },
                                 onDelete = {
                                     val deletedItem = expense
                                     viewModel.deleteExpense(expense)
@@ -424,7 +472,8 @@ fun TransactionScreenRowItem(
     expense: Expense,
     category: Category?,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    currencySymbol: String = "₹"
 ) {
     var showOptionsDialog by remember { mutableStateOf(false) }
 
@@ -437,7 +486,7 @@ fun TransactionScreenRowItem(
         AlertDialog(
             onDismissRequest = { showOptionsDialog = false },
             title = { Text("Transaction Options") },
-            text = { Text("What action would you like to perform for this $typeLabel of ₹${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
+            text = { Text("What action would you like to perform for this $typeLabel of $currencySymbol${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
             confirmButton = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -560,9 +609,9 @@ fun TransactionScreenRowItem(
 
         // Amount on the right side
         val amountLabel = when {
-            expense.isSavings -> "₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            expense.isIncome -> "+₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            else -> "-₹" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
         }
         val amountColor = when {
             expense.isSavings -> Color(0xFF3B82F6)

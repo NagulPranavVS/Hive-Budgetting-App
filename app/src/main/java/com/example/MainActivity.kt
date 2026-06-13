@@ -9,6 +9,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.delay
@@ -16,11 +18,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
@@ -77,6 +83,7 @@ class MainActivity : ComponentActivity() {
          intent?.action?.let { action ->
              if (action == "com.example.action.ADD_EXPENSE" || action == "com.example.action.ADD_INCOME") {
                  viewModel.widgetActionTrigger.value = action
+                 viewModel.widgetRouteIsIncome.value = (action == "com.example.action.ADD_INCOME")
              }
          }
     }
@@ -108,9 +115,20 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val snackbarHostState = remember { SnackbarHostState() }
 
+                // Remember the startup destination to avoid recreating NavHost graph on recompositions
+                val startDestination = remember {
+                    val action = intent?.action
+                    if (action == "com.example.action.ADD_EXPENSE" || action == "com.example.action.ADD_INCOME") {
+                        TabDestination.AddExpense.route
+                    } else {
+                        TabDestination.Home.route
+                    }
+                }
+
                 // Track selected tab dynamically from backstack!
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route ?: TabDestination.Home.route
+                val showBottomBar = currentRoute != TabDestination.AddExpense.route && currentRoute != "manage_categories"
 
                 // Listen to widget quick-actions and navigate accordingly
                 LaunchedEffect(viewModel, navController) {
@@ -141,18 +159,8 @@ class MainActivity : ComponentActivity() {
                                     val currentEntry = navController.currentBackStackEntry
                                     val currentDestRoute = currentEntry?.destination?.route
                                     if (currentDestRoute != TabDestination.AddExpense.route) {
-                                        if (currentEntry != null) {
-                                            navController.navigate(TabDestination.AddExpense.route) {
-                                                popUpTo(navController.graph.startDestinationId) {
-                                                    saveState = true
-                                                }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        } else {
-                                            navController.navigate(TabDestination.AddExpense.route) {
-                                                launchSingleTop = true
-                                            }
+                                        navController.navigate(TabDestination.AddExpense.route) {
+                                            launchSingleTop = true
                                         }
                                     }
                                 }
@@ -176,7 +184,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val googleEmail by viewModel.googleEmail.collectAsState()
-                val isCoachPanelOpen by viewModel.isCoachPanelOpen.collectAsState()
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Shifting fluid organic background layer sitting beneath transparent screens
@@ -186,10 +193,13 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize(),
                             containerColor = Color.Transparent,
                             floatingActionButton = {
-                                val showFab = (currentRoute == TabDestination.Home.route ||
-                                        currentRoute == TabDestination.Transactions.route ||
-                                        currentRoute == TabDestination.MonthlyReport.route) && !isCoachPanelOpen
-                                if (!WindowInsets.isImeVisible && showFab) {
+                                val showFab = currentRoute == TabDestination.Home.route ||
+                                        currentRoute == TabDestination.Transactions.route
+                                AnimatedVisibility(
+                                    visible = !WindowInsets.isImeVisible && showFab,
+                                    enter = fadeIn(animationSpec = tween(150)) + scaleIn(animationSpec = tween(150)),
+                                    exit = fadeOut(animationSpec = tween(150)) + scaleOut(animationSpec = tween(150))
+                                ) {
                                     FloatingActionButton(
                                         onClick = {
                                             navController.navigate(TabDestination.AddExpense.route) {
@@ -201,11 +211,14 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         containerColor = Color.Transparent,
+
                                         contentColor = Color.White,
-                                        shape = androidx.compose.foundation.shape.CircleShape,
                                         elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                                         modifier = Modifier
-                                            .padding(bottom = 14.dp, end = 4.dp)
+                                            .padding(
+                                                bottom = if (showBottomBar) 102.dp else 14.dp,
+                                                end = 4.dp
+                                            )
                                             .testTag("floating_add_button")
                                             .background(
                                                 brush = androidx.compose.ui.graphics.Brush.linearGradient(
@@ -222,70 +235,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            bottomBar = {
-                                val showBottomBar = currentRoute != TabDestination.AddExpense.route && currentRoute != "manage_categories" && !isCoachPanelOpen
-                                if (!WindowInsets.isImeVisible && showBottomBar) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        HorizontalDivider(
-                                            thickness = 1.dp,
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
-                                        )
-                                        NavigationBar(
-                                            modifier = Modifier.testTag("bottom_nav_bar"),
-                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                            tonalElevation = 0.dp
-                                        ) {
-                                            val items = listOf(
-                                                TabDestination.Home,
-                                                TabDestination.Transactions,
-                                                TabDestination.MonthlyReport,
-                                                TabDestination.Profile
-                                            )
-                                            items.forEach { item ->
-                                                val isSelected = selectedTab == item
-                                                NavigationBarItem(
-                                                    selected = isSelected,
-                                                    onClick = {
-                                                        navController.navigate(item.route) {
-                                                            popUpTo(navController.graph.startDestinationId) {
-                                                                saveState = true
-                                                            }
-                                                            launchSingleTop = true
-                                                            restoreState = true
-                                                        }
-                                                    },
-                                                    icon = {
-                                                        Icon(
-                                                            imageVector = if (item == TabDestination.Transactions) ImageVector.vectorResource(id = R.drawable.ic_swaps_horiz) else (if (isSelected) item.activeIcon else item.inactiveIcon),
-                                                            contentDescription = item.label,
-                                                            modifier = Modifier.size(22.dp)
-                                                        )
-                                                    },
-                                                    label = {
-                                                        Text(
-                                                            text = item.label,
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                                                letterSpacing = 0.5.sp
-                                                            )
-                                                        )
-                                                    },
-                                                    colors = NavigationBarItemDefaults.colors(
-                                                        selectedIconColor = if (MaterialTheme.colorScheme.surface != Color.White) Color.White else Color.Black,
-                                                        selectedTextColor = if (MaterialTheme.colorScheme.surface != Color.White) Color.White else Color.Black,
-                                                        indicatorColor = Color.Transparent, // Highlight icon & text only
-                                                        unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.40f),
-                                                        unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.40f)
-                                                    ),
-                                                    modifier = Modifier.testTag(item.testTag)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            },
+                            bottomBar = {},
                             snackbarHost = {
                                 SnackbarHost(
                                     hostState = snackbarHostState,
@@ -307,8 +257,15 @@ class MainActivity : ComponentActivity() {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 NavHost(
                                 navController = navController,
-                                startDestination = TabDestination.Home.route,
-                                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                                startDestination = startDestination,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(
+                                        top = innerPadding.calculateTopPadding(),
+                                        bottom = 0.dp,
+                                        start = innerPadding.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                                        end = innerPadding.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr)
+                                    ),
                                 enterTransition = { fadeIn(animationSpec = tween(150)) }, exitTransition = { fadeOut(animationSpec = tween(150)) }, popEnterTransition = { fadeIn(animationSpec = tween(150)) }, popExitTransition = { fadeOut(animationSpec = tween(150)) }, /*
                                     val initialRoute = initialState.destination.route
                                     val targetRoute = targetState.destination.route
@@ -420,7 +377,13 @@ class MainActivity : ComponentActivity() {
                                 composable(TabDestination.AddExpense.route) {
                                     AddExpenseScreen(
                                         viewModel = viewModel,
-                                        onBack = { navController.popBackStack() }
+                                        onBack = {
+                                            if (!navController.popBackStack()) {
+                                                navController.navigate(TabDestination.Home.route) {
+                                                    popUpTo(0) { inclusive = true }
+                                                }
+                                            }
+                                        }
                                     )
                                 }
                                 composable(TabDestination.MonthlyReport.route) {
@@ -439,6 +402,104 @@ class MainActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         onBack = { navController.popBackStack() }
                                     )
+                                }
+                            }
+
+                            // Beautiful, solid floating bottom nav bar adapted to both Dark and Light themes
+                            if (!WindowInsets.isImeVisible && showBottomBar) {
+                                val isDark = MaterialTheme.colorScheme.background.red < 0.2f
+                                val barBgColor = if (isDark) MaterialTheme.colorScheme.background else Color(0xFFFFFFFF)
+                                val barBorderColor = if (isDark) Color(0x1FFFFFFF) else Color(0x0F000000)
+                                val itemSelectedColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
+                                val itemUnselectedColor = if (isDark) Color.White.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(72.dp)
+                                            .shadow(
+                                                elevation = 16.dp,
+                                                shape = CircleShape,
+                                                clip = false
+                                            )
+                                            .background(
+                                                color = barBgColor,
+                                                shape = CircleShape
+                                            )
+                                            .border(
+                                                width = 1.dp,
+                                                color = barBorderColor,
+                                                shape = CircleShape
+                                            )
+                                            .padding(horizontal = 12.dp)
+                                            .testTag("bottom_nav_bar"),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceEvenly
+                                    ) {
+                                        val items = listOf(
+                                            TabDestination.Home,
+                                            TabDestination.Transactions,
+                                            TabDestination.MonthlyReport,
+                                            TabDestination.Profile
+                                        )
+                                        items.forEach { item ->
+                                            val isSelected = selectedTab == item
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .padding(vertical = 6.dp)
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        navController.navigate(item.route) {
+                                                             popUpTo(navController.graph.startDestinationId) {
+                                                                 saveState = true
+                                                             }
+                                                             launchSingleTop = true
+                                                             restoreState = true
+                                                         }
+                                                    }
+                                                    .testTag(item.testTag),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    val iconColor = if (isSelected) itemSelectedColor else itemUnselectedColor
+                                                    val textColor = if (isSelected) itemSelectedColor else itemUnselectedColor
+
+                                                    Icon(
+                                                        imageVector = if (item == TabDestination.Transactions) {
+                                                            ImageVector.vectorResource(id = R.drawable.ic_swaps_horiz)
+                                                        } else {
+                                                            if (isSelected) item.activeIcon else item.inactiveIcon
+                                                        },
+                                                        contentDescription = item.label,
+                                                        tint = iconColor,
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = item.label,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                                            letterSpacing = 0.4.sp,
+                                                            fontSize = 11.sp
+                                                        ),
+                                                        color = textColor
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

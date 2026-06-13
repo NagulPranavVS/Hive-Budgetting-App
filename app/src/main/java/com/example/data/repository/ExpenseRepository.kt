@@ -158,6 +158,20 @@ class ExpenseRepository(
     fun getUserName(): String = prefs.getString("user_name", "Guest User") ?: "Guest User"
     fun setUserName(name: String) = prefs.edit().putString("user_name", name).apply()
 
+    fun getSelectedCurrency(): String = prefs.getString("selected_currency", "INR") ?: "INR"
+    fun setSelectedCurrency(currency: String) = prefs.edit().putString("selected_currency", currency).apply()
+
+    fun getCurrencySymbol(): String {
+        return when (getSelectedCurrency()) {
+            "INR" -> "₹"
+            "USD" -> "$"
+            "GBP" -> "£"
+            "EUR" -> "€"
+            "AED" -> "AED"
+            else -> "₹"
+        }
+    }
+
     fun getThemeMode(): String = prefs.getString("theme_mode", "system") ?: "system"
     fun setThemeMode(mode: String) = prefs.edit().putString("theme_mode", mode).apply()
 
@@ -336,21 +350,21 @@ class ExpenseRepository(
             val hasFired = hasAlertFired(categoryId, monthYearStr, 3)
             if (!hasFired) {
                 val overAmount = totalSpent - budget
-                val msg = "You're ₹${String.format(java.util.Locale.US, "%,.0f", overAmount)} over your ${category.name} budget."
+                val msg = "You're ${getCurrencySymbol()}${String.format(java.util.Locale.US, "%,.0f", overAmount)} over your ${category.name} budget."
                 showNotification(category.name, msg, month, year)
                 setAlertFired(categoryId, monthYearStr, 3)
             }
         } else if (ratio >= 1.0) {
             val hasFired = hasAlertFired(categoryId, monthYearStr, 2)
             if (!hasFired) {
-                val msg = "You've reached your ₹${String.format(java.util.Locale.US, "%,.0f", budget)} ${category.name} budget for $monthName."
+                val msg = "You've reached your ${getCurrencySymbol()}${String.format(java.util.Locale.US, "%,.0f", budget)} ${category.name} budget for $monthName."
                 showNotification(category.name, msg, month, year)
                 setAlertFired(categoryId, monthYearStr, 2)
             }
         } else if (ratio >= 0.8) {
             val hasFired = hasAlertFired(categoryId, monthYearStr, 1)
             if (!hasFired) {
-                val msg = "Heads up! You've used 80% of your ₹${String.format(java.util.Locale.US, "%,.0f", budget)} ${category.name} budget this month."
+                val msg = "Heads up! You've used 80% of your ${getCurrencySymbol()}${String.format(java.util.Locale.US, "%,.0f", budget)} ${category.name} budget this month."
                 showNotification(category.name, msg, month, year)
                 setAlertFired(categoryId, monthYearStr, 1)
             }

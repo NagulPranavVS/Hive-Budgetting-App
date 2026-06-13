@@ -77,15 +77,26 @@ class MonthSpendingWidgetProvider : AppWidgetProvider() {
 
                 val remainingBalance = incomeThisMonth - savingsThisMonth - spentThisMonth
 
-                val balanceFormatted = "₹" + NumberFormat.getNumberInstance(Locale.US).format(remainingBalance.toInt())
-                val balanceTextToShow = if (isBalanceHidden) "₹••••" else balanceFormatted
+                val repoPrefs = context.getSharedPreferences("rupee_tracker_prefs", Context.MODE_PRIVATE)
+                val isSelectedCurrency = repoPrefs.getString("selected_currency", "INR") ?: "INR"
+                val currSymbol = when (isSelectedCurrency) {
+                    "INR" -> "₹"
+                    "USD" -> "$"
+                    "GBP" -> "£"
+                    "EUR" -> "€"
+                    "AED" -> "AED"
+                    else -> "₹"
+                }
+
+                val balanceFormatted = currSymbol + NumberFormat.getNumberInstance(Locale.US).format(Math.round(remainingBalance))
+                val balanceTextToShow = if (isBalanceHidden) "${currSymbol}••••" else balanceFormatted
                 val eyeIconRes = if (isBalanceHidden) R.drawable.ic_visibility_off else R.drawable.ic_visibility
 
-                val spentFormatted = "₹" + NumberFormat.getNumberInstance(Locale.US).format(spentThisMonth.toInt())
-                val spentTodayFormatted = "₹" + NumberFormat.getNumberInstance(Locale.US).format(spentToday.toInt())
+                val spentFormatted = currSymbol + NumberFormat.getNumberInstance(Locale.US).format(Math.round(spentThisMonth))
+                val spentTodayFormatted = currSymbol + NumberFormat.getNumberInstance(Locale.US).format(Math.round(spentToday))
 
-                val spentTextToShow = if (isBalanceHidden) "₹••••" else spentFormatted
-                val spentTodayTextToShow = if (isBalanceHidden) "₹••••" else spentTodayFormatted
+                val spentTextToShow = if (isBalanceHidden) "${currSymbol}••••" else spentFormatted
+                val spentTodayTextToShow = if (isBalanceHidden) "${currSymbol}••••" else spentTodayFormatted
 
                 for (appWidgetId in appWidgetIds) {
                     val views = RemoteViews(context.packageName, R.layout.widget_month_spending)
