@@ -41,6 +41,8 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.model.Category
 import com.example.ui.CategoryIconHelper
 import com.example.ui.TrackerViewModel
+import com.example.ui.components.InfoIconTooltip
+import com.example.ui.components.StyledSwitch
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -127,7 +129,12 @@ fun AddExpenseScreen(
                 exp.isIncome -> "income"
                 else -> "expense"
             }
-            val amtText = "$prefix${exp.amount.toInt()}"
+            val isWhole = exp.amount % 1.0 == 0.0
+            val amtText = if (isWhole) {
+                "$prefix${exp.amount.toLong()}"
+            } else {
+                "$prefix${String.format(java.util.Locale.US, "%.2f", exp.amount)}"
+            }
             amountValue = TextFieldValue(
                 text = amtText,
                 selection = TextRange(amtText.length)
@@ -233,14 +240,66 @@ fun AddExpenseScreen(
         onBack?.invoke()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Transparent)
-    ) {
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = if (editingExpense != null) {
+                            when (transactionType) {
+                                "income" -> "Edit Income"
+                                "savings" -> "Edit Savings"
+                                else -> "Edit Expense"
+                            }
+                        } else {
+                            when (transactionType) {
+                                "income" -> "Add Income"
+                                "savings" -> "Add Savings"
+                                else -> "Add Expense"
+                            }
+                        },
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { 
+                            viewModel.clearEditingExpense()
+                            onBack?.invoke() 
+                        },
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(40.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
+                windowInsets = WindowInsets(0.dp),
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        },
+        containerColor = Color.Transparent
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(innerPadding)
                 .imePadding()
         ) {
             LazyColumn(
@@ -248,137 +307,80 @@ fun AddExpenseScreen(
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(top = 24.dp, bottom = 40.dp),
+                contentPadding = PaddingValues(top = 0.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Header Row with Back Button on top left
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        IconButton(
-                            onClick = { 
-                                viewModel.clearEditingExpense()
-                                onBack?.invoke() 
-                            },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
-                                    shape = CircleShape
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Text(
-                            text = if (editingExpense != null) {
-                                when (transactionType) {
-                                    "income" -> "Edit Income"
-                                    "savings" -> "Edit Savings"
-                                    else -> "Edit Expense"
-                                }
-                            } else {
-                                when (transactionType) {
-                                    "income" -> "Add Income"
-                                    "savings" -> "Add Savings"
-                                    else -> "Add Expense"
-                                }
-                            },
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
 
                 // Type Selector (Segmented Control style)
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f))
-                            .border(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
-                            .padding(4.dp),
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (isDark) Color(0xFF1E1E24) else Color(0xFFEAEBF0))
+                            .padding(3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Expense Tab
+                        val isExpense = transactionType == "expense"
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (transactionType == "expense") MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .clickable {
-                                    transactionType = "expense"
-                                    
-                                },
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(if (isExpense) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { transactionType = "expense" },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "Expense",
                                 style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "expense") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    fontWeight = if (isExpense) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isExpense) MaterialTheme.colorScheme.onPrimary else (if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)),
+                                    fontSize = 13.sp
                                 )
                             )
                         }
 
                         // Income Tab
+                        val isIncome = transactionType == "income"
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (transactionType == "income") MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .clickable {
-                                    transactionType = "income"
-                                    
-                                },
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(if (isIncome) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { transactionType = "income" },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "Income",
                                 style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "income") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    fontWeight = if (isIncome) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isIncome) MaterialTheme.colorScheme.onPrimary else (if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)),
+                                    fontSize = 13.sp
                                 )
                             )
                         }
 
                         // Savings Tab
+                        val isSavings = transactionType == "savings"
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (transactionType == "savings") MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .clickable {
-                                    transactionType = "savings"
-                                    
-                                },
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(if (isSavings) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { transactionType = "savings" },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "Savings",
                                 style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (transactionType == "savings") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    fontWeight = if (isSavings) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSavings) MaterialTheme.colorScheme.onPrimary else (if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)),
+                                    fontSize = 13.sp
                                 )
                             )
                         }
@@ -779,30 +781,36 @@ fun AddExpenseScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         val formattedRemaining = if (remainingBudget >= 0) {
-                                            "$currencySymbol${String.format(java.util.Locale.US, "%,.0f", remainingBudget)}"
+                                            "$currencySymbol${String.format(java.util.Locale.US, "%,.2f", remainingBudget)}"
                                         } else {
-                                            "-$currencySymbol${String.format(java.util.Locale.US, "%,.0f", -remainingBudget)}"
+                                            "-$currencySymbol${String.format(java.util.Locale.US, "%,.2f", -remainingBudget)}"
                                         }
                                         Text(
-                                            text = "$formattedRemaining of $currencySymbol${String.format(java.util.Locale.US, "%,.0f", budget)} remaining",
+                                            text = "$formattedRemaining of $currencySymbol${String.format(java.util.Locale.US, "%,.2f", budget)} remaining",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    LinearProgressIndicator(
-                                        progress = { progress },
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(8.dp)
-                                            .clip(RoundedCornerShape(4.dp)),
-                                        color = barColor,
-                                        trackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
-                                    )
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .fillMaxWidth(progress)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(barColor)
+                                        )
+                                    }
                                     if (ratio > 1.0) {
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "⚠️ Over budget by $currencySymbol${String.format(java.util.Locale.US, "%,.0f", categorySpent - budget)}",
+                                            text = "⚠️ Over budget by $currencySymbol${String.format(java.util.Locale.US, "%,.2f", categorySpent - budget)}",
                                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.error
                                         )
@@ -892,6 +900,7 @@ fun AddExpenseScreen(
 
             AlertDialog(
                 onDismissRequest = { showNewCategoryDialog = false },
+                containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White,
                 title = { Text("Add Category", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(
@@ -993,28 +1002,58 @@ fun AddExpenseScreen(
                                 OutlinedTextField(
                                     value = catBudget,
                                     onValueChange = { input ->
-                                        if (input.all { it.isDigit() || it == '.' }) {
+                                        val allowedChars = listOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '+', '-', '*', '/')
+                                        if (input.all { it in allowedChars }) {
                                             catBudget = input
                                         }
                                     },
                                     placeholder = { Text("e.g. ${currencySymbol}3,000") },
                                     leadingIcon = { Text(currencySymbol, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
+                                    trailingIcon = if (catBudget.any { it in listOf('+', '-', '*', '/') }) {
+                                        {
+                                            val parsed = com.example.ui.components.evaluateExpression(catBudget)
+                                            val isTickEnabled = parsed != null && parsed >= 0.0
+                                            IconButton(
+                                                onClick = {
+                                                    if (parsed != null) {
+                                                        catBudget = if (parsed % 1.0 == 0.0) {
+                                                            parsed.toLong().toString()
+                                                        } else {
+                                                            String.format(Locale.US, "%.2f", parsed)
+                                                        }
+                                                    }
+                                                },
+                                                enabled = isTickEnabled
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Evaluate expression",
+                                                    tint = if (isTickEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                                         focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+                                        unfocusedBorderColor = if (isDark) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f) else Color(0xFFCBD5E1),
+                                        unfocusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color(0xFFF1F5F9),
+                                        focusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color.White,
                                         focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                                     )
                                 )
-                                val enteredBudgetAmt = catBudget.trim().toDoubleOrNull() ?: 0.0
-                                val availableBalanceForCreate = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget)
+                                val parsedAmt = com.example.ui.components.getActiveBudgetVal(catBudget)
+                                val enteredBudgetAmt = parsedAmt ?: 0.0
+                                val availableBalanceForCreate = (incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget
                                 val adjustedBalance = availableBalanceForCreate - enteredBudgetAmt
-                                val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
+                                val formattedBalance = String.format(Locale.getDefault(), "%,.2f", adjustedBalance)
                                 Text(
                                     text = "Remaining Balance: $currencySymbol$formattedBalance",
                                     style = MaterialTheme.typography.bodySmall,
@@ -1033,19 +1072,22 @@ fun AddExpenseScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Row(
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         Text(
                                             text = "Recurring Expense",
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        Text(
-                                            text = "Enable to automatically copy this budget to all future/upcoming months",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        InfoIconTooltip(
+                                            description = "Enable to automatically copy this budget to all future/upcoming months",
+                                            contentDescription = "Recurring Expense Info"
                                         )
                                     }
-                                    Switch(
+                                    StyledSwitch(
                                         checked = isRecurring,
                                         onCheckedChange = { isRecurring = it }
                                     )
@@ -1058,11 +1100,12 @@ fun AddExpenseScreen(
                     Button(
                         onClick = {
                             if (catName.isNotBlank()) {
+                                val finalBudgetVal = com.example.ui.components.getActiveBudgetVal(catBudget)
                                 viewModel.addCategory(
                                     name = catName.trim(),
                                     iconName = selectedIcon,
                                     colorHex = selectedColorHex,
-                                    monthlyBudget = if (transactionType == "expense" && (catBudget.toDoubleOrNull() ?: 0.0) > 0.0) catBudget.toDoubleOrNull() else null,
+                                    monthlyBudget = if (transactionType == "expense" && finalBudgetVal != null && finalBudgetVal > 0.0) finalBudgetVal else null,
                                     isIncome = (transactionType == "income"),
                                     isSavings = (transactionType == "savings"),
                                     isRecurring = isRecurring
@@ -1097,7 +1140,7 @@ fun AddExpenseScreen(
                         .height(450.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White,
                         contentColor = MaterialTheme.colorScheme.onSurface
                     )
                 ) {
@@ -1257,6 +1300,7 @@ fun AddExpenseScreen(
 
                     AlertDialog(
                         onDismissRequest = { showRenameDialogForCategory = null },
+                        containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White,
                         title = { Text("Rename Category", fontWeight = FontWeight.Bold) },
                         text = {
                             Column(
@@ -1353,20 +1397,49 @@ fun AddExpenseScreen(
                                         OutlinedTextField(
                                             value = renameBudget,
                                             onValueChange = { input ->
-                                                if (input.all { it.isDigit() || it == '.' }) {
+                                                val allowedChars = listOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '+', '-', '*', '/')
+                                                if (input.all { it in allowedChars }) {
                                                     renameBudget = input
                                                 }
                                             },
                                             placeholder = { Text("e.g. ${currencySymbol}3,000") },
                                             leadingIcon = { Text(currencySymbol, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) },
+                                            trailingIcon = if (renameBudget.any { it in listOf('+', '-', '*', '/') }) {
+                                                {
+                                                    val parsed = com.example.ui.components.evaluateExpression(renameBudget)
+                                                    val isTickEnabled = parsed != null && parsed >= 0.0
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (parsed != null) {
+                                                                renameBudget = if (parsed % 1.0 == 0.0) {
+                                                                    parsed.toLong().toString()
+                                                                } else {
+                                                                    String.format(Locale.US, "%.2f", parsed)
+                                                                }
+                                                            }
+                                                        },
+                                                        enabled = isTickEnabled
+                                                     ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = "Evaluate expression",
+                                                            tint = if (isTickEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f)
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                null
+                                            },
                                             singleLine = true,
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                                             modifier = Modifier.fillMaxWidth(),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+                                                unfocusedBorderColor = if (isDark) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f) else Color(0xFFCBD5E1),
+                                         unfocusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color(0xFFF1F5F9),
+                                         focusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color.White,
                                                 focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                                             )
@@ -1375,10 +1448,11 @@ fun AddExpenseScreen(
                                             categories.filter { !it.isIncome && !it.isSavings && it.id != categoryToRename.id }
                                                 .sumOf { it.monthlyBudget ?: 0.0 }
                                         }
-                                        val enteredBudgetAmt = renameBudget.trim().toDoubleOrNull() ?: 0.0
-                                        val availableBalanceForEdit = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
+                                        val parsedAmt = com.example.ui.components.getActiveBudgetVal(renameBudget)
+                                        val enteredBudgetAmt = parsedAmt ?: 0.0
+                                        val availableBalanceForEdit = (incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum
                                         val adjustedBalance = availableBalanceForEdit - enteredBudgetAmt
-                                        val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
+                                        val formattedBalance = String.format(Locale.getDefault(), "%,.2f", adjustedBalance)
                                         Text(
                                             text = "Remaining Balance: $currencySymbol$formattedBalance",
                                             style = MaterialTheme.typography.bodySmall,
@@ -1397,42 +1471,48 @@ fun AddExpenseScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Row(
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
                                                 Text(
                                                     text = "Recurring Expense",
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                    style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
-                                                Text(
-                                                    text = "Enable to automatically copy this budget to all future/upcoming months",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                InfoIconTooltip(
+                                                    description = "Enable to automatically copy this budget to all future/upcoming months",
+                                                    contentDescription = "Recurring Expense Info"
                                                 )
                                             }
-                                            Switch(
+                                            StyledSwitch(
                                                 checked = renameIsRecurring,
                                                 onCheckedChange = { renameIsRecurring = it }
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Row(
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
                                                 Text(
                                                     text = "Mark as Settled",
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                    style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
-                                                Text(
-                                                    text = "Hides it from the main active spending list once paid.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                InfoIconTooltip(
+                                                    description = "Hides it from the main active spending list once paid.",
+                                                    contentDescription = "Mark as Settled Info"
                                                 )
                                             }
-                                            Switch(
+                                            StyledSwitch(
                                                 checked = renameIsSettled,
                                                 onCheckedChange = { renameIsSettled = it }
                                             )
@@ -1450,7 +1530,10 @@ fun AddExpenseScreen(
                                                 name = renameName.trim(),
                                                 iconName = renameIcon,
                                                 colorHex = renameColorHex,
-                                                monthlyBudget = if (!categoryToRename.isIncome && !categoryToRename.isSavings && (renameBudget.toDoubleOrNull() ?: 0.0) > 0.0) renameBudget.toDoubleOrNull() else null
+                                                monthlyBudget = run {
+                                                    val finalBudgetVal = com.example.ui.components.getActiveBudgetVal(renameBudget)
+                                                    if (!categoryToRename.isIncome && !categoryToRename.isSavings && finalBudgetVal != null && finalBudgetVal > 0.0) finalBudgetVal else null
+                                                }
                                             ),
                                             isRecurring = renameIsRecurring,
                                             isSettled = renameIsSettled
@@ -1474,4 +1557,5 @@ fun AddExpenseScreen(
             }
         }
     }
+
 }

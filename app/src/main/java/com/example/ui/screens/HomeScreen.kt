@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,6 +47,8 @@ import com.example.data.model.Category
 import com.example.data.model.Expense
 import com.example.ui.CategoryIconHelper
 import com.example.ui.TrackerViewModel
+import com.example.ui.CurrencyFormatter
+import com.example.ui.FinanceText
 import com.example.ui.components.SetBudgetDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,7 +67,8 @@ fun HomeScreen(
     snackbarHostState: SnackbarHostState,
     onNavigateToProfile: () -> Unit,
     onNavigateToAnalytics: () -> Unit,
-    onSetBudgetClick: () -> Unit = {}
+    onSetBudgetClick: () -> Unit = {},
+    onCopyBudgetClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -129,15 +133,21 @@ fun HomeScreen(
             .filter { (cat, _) -> !viewModel.isCategoryBudgetSettledForMonth(cat.id, homeMonth, homeYear) }
     }
 
-    val budgetedNonRecurring = remember(categoriesWithSpends, homeMonth, homeYear) {
+    val homeCategoriesRecurringMap = remember(categories, homeMonth, homeYear, categoriesTrigger) {
+        categories.associate { cat ->
+            cat.id to viewModel.isCategoryBudgetRecurringForMonth(cat.id, homeMonth, homeYear)
+        }
+    }
+
+    val budgetedNonRecurring = remember(categoriesWithSpends, homeCategoriesRecurringMap) {
         categoriesWithSpends.filter { (cat, _) ->
-            (cat.monthlyBudget ?: 0.0) > 0.0 && !viewModel.isCategoryBudgetRecurringForMonth(cat.id, homeMonth, homeYear)
+            (cat.monthlyBudget ?: 0.0) > 0.0 && !(homeCategoriesRecurringMap[cat.id] ?: false)
         }.sortedByDescending { it.second / (it.first.monthlyBudget ?: 1.0) }
     }
 
-    val budgetedRecurring = remember(categoriesWithSpends, homeMonth, homeYear) {
+    val budgetedRecurring = remember(categoriesWithSpends, homeCategoriesRecurringMap) {
         categoriesWithSpends.filter { (cat, _) ->
-            (cat.monthlyBudget ?: 0.0) > 0.0 && viewModel.isCategoryBudgetRecurringForMonth(cat.id, homeMonth, homeYear)
+            (cat.monthlyBudget ?: 0.0) > 0.0 && (homeCategoriesRecurringMap[cat.id] ?: false)
         }.sortedByDescending { it.second / (it.first.monthlyBudget ?: 1.0) }
     }
 
@@ -181,7 +191,7 @@ fun HomeScreen(
         val otherBudgetsSum = categories
             .filter { !it.isIncome && !it.isSavings && it.id != dialogCat.id }
             .sumOf { it.monthlyBudget ?: 0.0 }
-        val currentRemainingBalance = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
+        val currentRemainingBalance = (incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum
         SetBudgetDialog(
             category = dialogCat,
             initialIsRecurring = isRecInitial,
@@ -238,7 +248,7 @@ fun HomeScreen(
     }
 
     fun formatCurrency(amount: Double): String {
-        return currencySymbol + String.format(Locale.getDefault(), "%,.0f", amount)
+        return CurrencyFormatter.formatPlain(currencySymbol, amount)
     }
 
     Box(
@@ -266,7 +276,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(top = 0.dp, bottom = 180.dp)
             ) {
                 // Unified Modern Top Header Row
-                item {
+                item(key = "home_top_header") {
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -495,7 +505,7 @@ fun HomeScreen(
                 }
 
                 // Balance Card
-if (showFullDashboard) item {
+                if (showFullDashboard) item(key = "home_balance_card") {
     var isBalanceExpanded by remember { mutableStateOf(false) }
     var isBalanceAmountsVisible by remember { mutableStateOf(true) }
     val totalIncome = incomeThisMonthAmount
@@ -515,15 +525,159 @@ if (showFullDashboard) item {
     val monthsListBack = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     val currentMonthAbbr = monthsListBack.getOrNull(homeMonth - 1) ?: ""
 
+    val isFutureMonth = (homeYear > actualYear) || (homeYear == actualYear && homeMonth > actualMonth)
+    val isPromptDismissed = viewModel.isBudgetPromptDismissed(homeMonth, homeYear)
+    
+    // For testing purposes: show the copy prompt for any future month. 
+    // Commented out the 3-day limitation below so you can test it easily right now.
+    val showCopyPrompt = isFutureMonth && !isPromptDismissed
+    /*
+    val showCopyPrompt = remember(homeMonth, homeYear, actualMonth, actualYear) {
+        if (!isFutureMonth) return@remember false
+        val today = java.util.Calendar.getInstance()
+        val target = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.YEAR, homeYear)
+            set(java.util.Calendar.MONTH, homeMonth - 1)
+            set(java.util.Calendar.DAY_OF_MONTH, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val diffMillis = target.timeInMillis - today.timeInMillis
+        val diffDays = diffMillis / (24 * 60 * 60 * 1000.0)
+        diffDays <= 3.0
+    } && !isPromptDismissed
+    */
+
+    if (showCopyPrompt) {
+        val cardBgColor = if (isDark) Color(0xFF1E1F22) else Color(0xFFFFF8F6)
+        val accentColor = if (isDark) Color(0xFFCE5A32) else Color(0xFFCE5A32)
+        val cardBorderColor = if (isDark) Color(0xFFCE5A32).copy(alpha = 0.45f) else Color(0xFFCE5A32).copy(alpha = 0.35f)
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+                .testTag("copy_budget_prompt_card"),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = cardBgColor
+            ),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.2.dp,
+                color = cardBorderColor
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Left side: Custom clipboard peach container icon
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                color = Color(0xFFFFEBE4), // Beautiful light peach background
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Icon",
+                            tint = Color(0xFFCE5A32),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    // Middle/Right: Title, description, and action button
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Copy past budget details?",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (isDark) Color.White else Color(0xFF1F2937),
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Set up your month quicky by copying past month’s budget details",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF4B5563),
+                            lineHeight = 20.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onCopyBudgetClick,
+                            shape = RoundedCornerShape(50.dp),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .height(40.dp)
+                                .testTag("copy_budget_prompt_cta"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentColor,
+                                contentColor = Color.White
+                            ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Copy budget",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                // Top Right: Simple elegant clear/close button
+                IconButton(
+                    onClick = {
+                        viewModel.setBudgetPromptDismissed(homeMonth, homeYear, true)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(24.dp)
+                        .testTag("copy_budget_prompt_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "Dismiss copy budget prompt",
+                        tint = if (isDark) Color.White.copy(alpha = 0.8f) else Color.Black.copy(alpha = 0.5f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 24.dp)
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(24.dp),
-                clip = true
-            )
+            .clip(RoundedCornerShape(24.dp))
             .background(Color(0xFF03020E), RoundedCornerShape(24.dp))
             .border(
                 width = 1.dp,
@@ -639,15 +793,17 @@ if (showFullDashboard) item {
                     // Invisible spacer on the left to perfectly balance the eye button on the right
                     Spacer(modifier = Modifier.width(36.dp))
 
-                    Text(
-                        text = displaySpentThisMonth,
+                    FinanceText(
+                        currencySymbol = currencySymbol,
+                        amount = spentThisMonthAmount,
+                        baseFontSize = 44.sp,
+                        fontWeight = FontWeight.Black,
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = 44.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color.White,
-                            letterSpacing = (-0.03).em
+                            letterSpacing = (-0.03).em,
+                            textAlign = TextAlign.Center
                         ),
-                        textAlign = TextAlign.Center
+                        color = Color.White,
+                        isVisible = isBalanceAmountsVisible
                     )
 
                     Spacer(modifier = Modifier.width(4.dp))
@@ -697,13 +853,14 @@ if (showFullDashboard) item {
                             )
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = displayTodaySpends,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 18.sp,
-                                color = Color.White
-                            )
+                        FinanceText(
+                            currencySymbol = currencySymbol,
+                            amount = todaySpends,
+                            baseFontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            isVisible = isBalanceAmountsVisible
                         )
                     }
 
@@ -728,13 +885,14 @@ if (showFullDashboard) item {
                             )
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = displayTotalIncome,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 18.sp,
-                                color = Color.White
-                            )
+                        FinanceText(
+                            currencySymbol = currencySymbol,
+                            amount = totalIncome,
+                            baseFontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            isVisible = isBalanceAmountsVisible
                         )
                     }
 
@@ -759,13 +917,14 @@ if (showFullDashboard) item {
                             )
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = displayTotalSavings,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 18.sp,
-                                color = Color.White
-                            )
+                        FinanceText(
+                            currencySymbol = currencySymbol,
+                            amount = totalSavings,
+                            baseFontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            isVisible = isBalanceAmountsVisible
                         )
                     }
                 }
@@ -987,13 +1146,14 @@ if (showFullDashboard) item {
                                     modifier = Modifier.padding(start = 16.dp)
                                 )
                             }
-                            Text(
-                                text = displayRemainingBalance,
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 24.sp,
-                                    color = Color.White
-                                )
+                            FinanceText(
+                                currencySymbol = currencySymbol,
+                                amount = remainingBalance,
+                                baseFontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                isVisible = isBalanceAmountsVisible
                             )
                         }
                     }
@@ -1034,7 +1194,7 @@ if (showFullDashboard) item {
 }
 
                 // Budget Bar Card (Styled with standard-aligned cohesive Material 3 design)
-                if (showFullDashboard) item {
+                if (showFullDashboard) item(key = "home_budget_bar_card") {
                     val totalCategoriesBudget = remember(categories) {
                         categories.filter { !it.isIncome && !it.isSavings }
                             .sumOf { it.monthlyBudget ?: 0.0 }
@@ -1047,9 +1207,9 @@ if (showFullDashboard) item {
                                 .padding(bottom = 16.dp),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
+                                containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+                            border = if (isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)) else null
                         ) {
                             Row(
                                 modifier = Modifier
@@ -1161,9 +1321,9 @@ if (showFullDashboard) item {
                                 .padding(bottom = 20.dp),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
+                                containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+                            border = if (isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)) else null
                         ) {
                             Column(
                                 modifier = Modifier
@@ -1265,7 +1425,7 @@ if (showFullDashboard) item {
 
                 // Dynamic SPENDING BY CATEGORY list with progress bars
                 if (showFullDashboard && (budgetedToShow.isNotEmpty() || unbudgetedToShow.isNotEmpty() || recurringToShow.isNotEmpty())) {
-                    item {
+                    item(key = "home_spending_by_category") {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1274,7 +1434,7 @@ if (showFullDashboard) item {
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surface
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                            border = if (isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null
                         ) {
                             Column(
                                 modifier = Modifier
@@ -1327,7 +1487,7 @@ if (showFullDashboard) item {
                                     budgetedToShow.forEachIndexed { index, (cat, amt) ->
                                         val catBudget = cat.monthlyBudget ?: 0.0
                                         val catPct = if (catBudget > 0.0) (amt / catBudget).toFloat() else 0f
-                                         val isRecurring = viewModel.isCategoryBudgetRecurringForMonth(cat.id, homeMonth, homeYear)
+                                         val isRecurring = homeCategoriesRecurringMap[cat.id] ?: false
                                         val isOverBudget = amt > catBudget
                                         
                                         val catColor = if (isRecurring) Color(0xFF3B82F6) else when {
@@ -1402,7 +1562,7 @@ if (showFullDashboard) item {
                                                     .fillMaxWidth()
                                                     .height(8.dp)
                                                     .clip(RoundedCornerShape(4.dp))
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1642,7 +1802,7 @@ if (showFullDashboard) item {
                                                     .fillMaxWidth()
                                                     .height(8.dp)
                                                     .clip(RoundedCornerShape(4.dp))
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1686,7 +1846,7 @@ if (showFullDashboard) item {
                 }
 
                 // Recent Transactions section
-                item {
+                item(key = "home_recent_transactions") {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1695,7 +1855,7 @@ if (showFullDashboard) item {
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surface
                         ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+                        border = if (isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)) else null
                     ) {
                         Column(
                             modifier = Modifier
@@ -1913,36 +2073,36 @@ if (showFullDashboard) item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 14.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f))
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            .height(44.dp)
+                            .padding(horizontal = 24.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (isDark) Color(0xFF1E1E24) else Color(0xFFEAEBF0))
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf("report" to "📊 Proactive Report", "chat" to "💬 Consult Coach").forEach { (tabKey, labelName) ->
                             val isSelected = selectedCoachTab == tabKey
-                            val tabBg = if (isSelected) MaterialTheme.colorScheme.background else Color.Transparent
-                            val tabBorder = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f)) else null
-                            val tabContentColor = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                            val activeBgColor = MaterialTheme.colorScheme.primary
+                            val activeTextColor = MaterialTheme.colorScheme.onPrimary
+                            val inactiveTextColor = if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)
 
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(tabBg)
-                                    .let { if (tabBorder != null) it.border(tabBorder, RoundedCornerShape(8.dp)) else it }
-                                    .clickable { selectedCoachTab = tabKey }
-                                    .padding(vertical = 6.dp),
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(if (isSelected) activeBgColor else Color.Transparent)
+                                    .clickable { selectedCoachTab = tabKey },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = labelName,
                                     style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    ),
-                                    color = tabContentColor
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 13.sp,
+                                        color = if (isSelected) activeTextColor else inactiveTextColor
+                                    )
                                 )
                             }
                         }
@@ -2776,6 +2936,7 @@ fun ExpenseItemRow(
     currencySymbol: String = "₹"
 ) {
     var showDialog by remember { mutableStateOf(false) }
+    val isDark = MaterialTheme.colorScheme.background.red < 0.5f
 
     if (showDialog) {
         val typeLabel = when {
@@ -2785,8 +2946,9 @@ fun ExpenseItemRow(
         }
         AlertDialog(
             onDismissRequest = { showDialog = false },
+            containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White,
             title = { Text("Transaction Options") },
-            text = { Text("What action would you like to perform for this $typeLabel of $currencySymbol${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
+            text = { Text("What action would you like to perform for this $typeLabel of ${CurrencyFormatter.formatPlain(currencySymbol, expense.amount)}: \"${expense.description}\"?") },
             confirmButton = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2908,23 +3070,24 @@ fun ExpenseItemRow(
         }
 
         // Amount on the right side
-        val amountLabel = when {
-            expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+        val prefix = when {
+            expense.isSavings -> ""
+            expense.isIncome -> "+"
+            else -> "-"
         }
         val amountColor = when {
             expense.isSavings -> Color(0xFF3B82F6)
             expense.isIncome -> Color(0xFF10B981)
             else -> Color(0xFFEF4444)
         }
-        Text(
-            text = amountLabel,
-            style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
-                color = amountColor
-            )
+        FinanceText(
+            currencySymbol = currencySymbol,
+            amount = expense.amount,
+            baseFontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            style = MaterialTheme.typography.bodyLarge,
+            color = amountColor,
+            prefix = prefix
         )
     }
 }

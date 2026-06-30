@@ -298,6 +298,61 @@ class ExpenseRepository(
         }
     }
 
+    fun isBudgetPromptDismissed(month: Int, year: Int): Boolean {
+        val key = "budget_prompt_dismissed_${month}_${year}"
+        return prefs.getBoolean(key, false)
+    }
+
+    fun setBudgetPromptDismissed(month: Int, year: Int, dismissed: Boolean) {
+        val key = "budget_prompt_dismissed_${month}_${year}"
+        if (dismissed) {
+            prefs.edit().putBoolean(key, true).apply()
+        } else {
+            prefs.edit().remove(key).apply()
+        }
+    }
+
+    suspend fun copyMonthlyBudgets(srcMonth: Int, srcYear: Int, targetMonth: Int, targetYear: Int) {
+        val categoriesList = getAllCategories()
+        val editor = prefs.edit()
+        for (cat in categoriesList) {
+            val resolvedBudget = getCategoryBudgetForMonth(cat.id, srcMonth, srcYear)
+            val resolvedRecurring = isCategoryBudgetRecurringForMonth(cat.id, srcMonth, srcYear)
+            val resolvedSettled = isCategoryBudgetSettledForMonth(cat.id, srcMonth, srcYear)
+            val resolvedDeleted = isCategoryDeletedForMonth(cat.id, srcMonth, srcYear)
+
+            val targetBudgetKey = "category_budget_${cat.id}_${targetMonth}_${targetYear}"
+            val targetRecKey = "category_recurring_${cat.id}_${targetMonth}_${targetYear}"
+            val targetClearKey = "category_budget_cleared_${cat.id}_${targetMonth}_${targetYear}"
+            val targetSettledKey = "category_settled_${cat.id}_${targetMonth}_${targetYear}"
+            val targetDeletedKey = "category_deleted_${cat.id}_${targetMonth}_${targetYear}"
+
+            if (resolvedBudget != null) {
+                editor.putFloat(targetBudgetKey, resolvedBudget.toFloat())
+                editor.putBoolean(targetRecKey, resolvedRecurring)
+                editor.remove(targetClearKey)
+            } else {
+                editor.remove(targetBudgetKey)
+                editor.remove(targetRecKey)
+                editor.putBoolean(targetClearKey, true)
+            }
+
+            if (resolvedSettled) {
+                editor.putBoolean(targetSettledKey, true)
+            } else {
+                editor.remove(targetSettledKey)
+            }
+
+            if (resolvedDeleted) {
+                editor.putBoolean(targetDeletedKey, true)
+            } else {
+                editor.remove(targetDeletedKey)
+            }
+        }
+        editor.putBoolean("budget_prompt_dismissed_${targetMonth}_${targetYear}", true)
+        editor.apply()
+    }
+
     private fun autoUnsettleCategory(categoryId: Int, date: Long) {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = date }
         val month = cal.get(java.util.Calendar.MONTH) + 1
@@ -390,12 +445,19 @@ class ExpenseRepository(
         )
 
         val builder = androidx.core.app.NotificationCompat.Builder(context, "budget_alerts_channel")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Budget Alert: $categoryName")
+            .setSmallIcon(com.example.R.drawable.ic_app_logo)
+            .setContentTitle("⚠️ Budget Alert: $categoryName")
             .setContentText(message)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setStyle(androidx.core.app.NotificationCompat.BigTextStyle()
+                .bigText("$message\n\nTake control of your spending items inside Monthly Reports to manage your limit.")
+                .setBigContentTitle("⚠️ Budget Limit Exceeded")
+                .setSummaryText("Budget Monitor")
+            )
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setColor(0xFFE53935.toInt()) // High-Contrast warnings red
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .addAction(0, "📊 View Analytics", pendingIntent)
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         notificationManager.notify((categoryName.hashCode() + month + year).and(0xffff), builder.build())
@@ -417,6 +479,12 @@ class ExpenseRepository(
 
     fun isBudgetAlertsEnabled(): Boolean = prefs.getBoolean("budget_alerts_enabled", true)
     fun setBudgetAlertsEnabled(enabled: Boolean) = prefs.edit().putBoolean("budget_alerts_enabled", enabled).apply()
+
+    fun isDailySpendNotificationEnabled(): Boolean = prefs.getBoolean("daily_spend_notification_enabled", false)
+    fun setDailySpendNotificationEnabled(enabled: Boolean) = prefs.edit().putBoolean("daily_spend_notification_enabled", enabled).apply()
+
+    fun getDailySpendNotificationTime(): String = prefs.getString("daily_spend_notification_time", "23:00") ?: "23:00"
+    fun setDailySpendNotificationTime(time: String) = prefs.edit().putString("daily_spend_notification_time", time).apply()
 
     fun getGlobalMonthlyBudget(): Double = prefs.getFloat("global_monthly_budget", 15000f).toDouble()
     fun setGlobalMonthlyBudget(budget: Double) = prefs.edit().putFloat("global_monthly_budget", budget.toFloat()).apply()
@@ -463,13 +531,20 @@ class ExpenseRepository(
         for ((key, value) in allPrefs) {
             if (key == "user_name" || 
                 key == "theme_mode" || 
+                key == "selected_currency" ||
                 key == "global_monthly_budget" || 
                 key == "budget_alerts_enabled" ||
+                key == "daily_spend_notification_enabled" ||
+                key == "daily_spend_notification_time" ||
+                key == "sheets_sync_enabled" ||
+                key == "connected_sheet_id" ||
+                key == "balance_hidden" ||
                 key.startsWith("category_budget_") ||
                 key.startsWith("category_recurring_") ||
                 key.startsWith("category_budget_cleared_") ||
                 key.startsWith("category_settled_") ||
-                key.startsWith("category_deleted_")
+                key.startsWith("category_deleted_") ||
+                key.startsWith("alert_fired_")
             ) {
                 prefsObj.put(key, value ?: org.json.JSONObject.NULL)
             }
@@ -549,7 +624,7 @@ class ExpenseRepository(
                         } else {
                             val value = prefsObj.get(key)
                             when {
-                                key == "user_name" || key == "theme_mode" -> {
+                                key == "user_name" || key == "theme_mode" || key == "selected_currency" || key == "connected_sheet_id" || key == "daily_spend_notification_time" -> {
                                     editor.putString(key, value.toString())
                                 }
                                 key == "global_monthly_budget" || (key.startsWith("category_budget_") && !key.startsWith("category_budget_cleared_")) -> {
@@ -561,10 +636,14 @@ class ExpenseRepository(
                                     editor.putFloat(key, floatVal)
                                 }
                                 key == "budget_alerts_enabled" || 
+                                key == "daily_spend_notification_enabled" ||
+                                key == "sheets_sync_enabled" ||
+                                key == "balance_hidden" ||
                                 key.startsWith("category_recurring_") || 
                                 key.startsWith("category_budget_cleared_") || 
                                 key.startsWith("category_settled_") || 
-                                key.startsWith("category_deleted_") -> {
+                                key.startsWith("category_deleted_") ||
+                                key.startsWith("alert_fired_") -> {
                                     val boolVal = when (value) {
                                         is Boolean -> value
                                         is String -> value.toBoolean()

@@ -28,6 +28,8 @@ import com.example.data.model.Category
 import com.example.data.model.Expense
 import com.example.ui.CategoryIconHelper
 import com.example.ui.TrackerViewModel
+import com.example.ui.CurrencyFormatter
+import com.example.ui.FinanceText
 import kotlinx.coroutines.launch
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
@@ -285,46 +287,35 @@ fun TransactionsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .height(44.dp)
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(if (isDark) Color(0xFF1E1E24) else Color(0xFFEAEBF0))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf("All", "Expense", "Income", "Savings").forEachIndexed { index, label ->
                     val isSelected = selectedTabIndex == index
-                    
-                    val contentColor = if (isSelected) {
-                        if (isDark) Color.Black else Color.White
-                    } else {
-                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                    }
-                    
+                    val activeBgColor = MaterialTheme.colorScheme.primary
+                    val activeTextColor = MaterialTheme.colorScheme.onPrimary
+                    val inactiveTextColor = if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)
+
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(24.dp))
-                            .then(
-                                if (isSelected) {
-                                    Modifier.background(if (isDark) Color.White else Color(0xFF111827))
-                                } else {
-                                    Modifier
-                                        .border(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
-                                            RoundedCornerShape(24.dp)
-                                        )
-                                        .background(Color.Transparent)
-                                }
-                            )
-                            .clickable { selectedTabIndex = index }
-                            .padding(vertical = 10.dp),
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (isSelected) activeBgColor else Color.Transparent)
+                            .clickable { selectedTabIndex = index },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = label,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = contentColor,
-                                letterSpacing = 0.1.sp
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) activeTextColor else inactiveTextColor,
+                                fontSize = 13.sp
                             )
                         )
                     }
@@ -337,23 +328,32 @@ fun TransactionsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(vertical = 80.dp),
+                        .padding(top = 40.dp, start = 24.dp, end = 24.dp, bottom = 40.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.Top
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ReceiptLong,
-                        contentDescription = "No receipts",
+                        imageVector = if (searchQuery.isNotEmpty()) Icons.Default.Search else Icons.Default.ReceiptLong,
+                        contentDescription = "No receipts found",
                         tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
-                        modifier = Modifier.size(60.dp)
+                        modifier = Modifier.size(48.dp)
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (searchQuery.isNotEmpty()) "No matches found for \"$searchQuery\"" else "No transactions recorded in this context",
+                        text = if (searchQuery.isNotEmpty()) "No data found for \"$searchQuery\"" else "No transactions recorded in this context",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
                         ),
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (searchQuery.isNotEmpty()) "Try searching different terms." else "Tap '+' below to add one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.40f),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 24.dp)
                     )
@@ -476,6 +476,7 @@ fun TransactionScreenRowItem(
     currencySymbol: String = "₹"
 ) {
     var showOptionsDialog by remember { mutableStateOf(false) }
+    val isDark = MaterialTheme.colorScheme.background.red < 0.5f
 
     if (showOptionsDialog) {
         val typeLabel = when {
@@ -485,8 +486,9 @@ fun TransactionScreenRowItem(
         }
         AlertDialog(
             onDismissRequest = { showOptionsDialog = false },
+            containerColor = if (isDark) MaterialTheme.colorScheme.surface else Color.White,
             title = { Text("Transaction Options") },
-            text = { Text("What action would you like to perform for this $typeLabel of $currencySymbol${String.format(Locale.US, "%,.0f", expense.amount)}: \"${expense.description}\"?") },
+            text = { Text("What action would you like to perform for this $typeLabel of ${CurrencyFormatter.formatPlain(currencySymbol, expense.amount)}: \"${expense.description}\"?") },
             confirmButton = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -608,23 +610,24 @@ fun TransactionScreenRowItem(
         }
 
         // Amount on the right side
-        val amountLabel = when {
-            expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-            else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+        val prefix = when {
+            expense.isSavings -> ""
+            expense.isIncome -> "+"
+            else -> "-"
         }
         val amountColor = when {
             expense.isSavings -> Color(0xFF3B82F6)
             expense.isIncome -> Color(0xFF10B981)
             else -> Color(0xFFEF4444)
         }
-        Text(
-            text = amountLabel,
-            style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
-                color = amountColor
-            )
+        FinanceText(
+            currencySymbol = currencySymbol,
+            amount = expense.amount,
+            baseFontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            style = MaterialTheme.typography.bodyLarge,
+            color = amountColor,
+            prefix = prefix
         )
     }
 }

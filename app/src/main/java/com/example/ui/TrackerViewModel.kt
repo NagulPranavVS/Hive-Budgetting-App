@@ -19,6 +19,15 @@ class TrackerViewModel(
     private val repository: ExpenseRepository
 ) : AndroidViewModel(application) {
 
+    private val _snackbarMessage = MutableSharedFlow<String>()
+    val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
+
+    fun showSnackbar(message: String) {
+        viewModelScope.launch {
+            _snackbarMessage.emit(message)
+        }
+    }
+
     val currentMonth: Int = Calendar.getInstance().get(Calendar.MONTH) + 1
     val currentYear: Int = Calendar.getInstance().get(Calendar.YEAR)
 
@@ -28,10 +37,10 @@ class TrackerViewModel(
     private val _homeYear = MutableStateFlow(currentYear)
     val homeYear: StateFlow<Int> = _homeYear.asStateFlow()
 
-    private val _reportMonth = MutableStateFlow(currentMonth)
+    private val _reportMonth = _homeMonth
     val reportMonth: StateFlow<Int> = _reportMonth.asStateFlow()
 
-    private val _reportYear = MutableStateFlow(currentYear)
+    private val _reportYear = _homeYear
     val reportYear: StateFlow<Int> = _reportYear.asStateFlow()
 
     private val _categoriesTrigger = MutableStateFlow(0L)
@@ -96,6 +105,36 @@ class TrackerViewModel(
     fun toggleBudgetAlerts(enabled: Boolean) {
         repository.setBudgetAlertsEnabled(enabled)
         _budgetAlertsEnabled.value = enabled
+    }
+
+    private val _dailySpendNotificationEnabled = MutableStateFlow(repository.isDailySpendNotificationEnabled())
+    val dailySpendNotificationEnabled: StateFlow<Boolean> = _dailySpendNotificationEnabled.asStateFlow()
+
+    private val _dailySpendNotificationTime = MutableStateFlow(repository.getDailySpendNotificationTime())
+    val dailySpendNotificationTime: StateFlow<String> = _dailySpendNotificationTime.asStateFlow()
+
+    fun toggleDailySpendNotification(enabled: Boolean) {
+        repository.setDailySpendNotificationEnabled(enabled)
+        _dailySpendNotificationEnabled.value = enabled
+        if (enabled) {
+            val parts = _dailySpendNotificationTime.value.split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 23
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            com.example.NotificationScheduler.scheduleDailyNotification(getApplication(), hour, minute)
+        } else {
+            com.example.NotificationScheduler.cancelDailyNotification(getApplication())
+        }
+    }
+
+    fun updateDailySpendNotificationTime(time: String) {
+        repository.setDailySpendNotificationTime(time)
+        _dailySpendNotificationTime.value = time
+        if (_dailySpendNotificationEnabled.value) {
+            val parts = time.split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 23
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            com.example.NotificationScheduler.scheduleDailyNotification(getApplication(), hour, minute)
+        }
     }
 
     private val _sheetsSyncEnabled = MutableStateFlow(repository.isSheetsSyncEnabled())
@@ -302,6 +341,25 @@ class TrackerViewModel(
         }
     }
 
+    fun isBudgetPromptDismissed(month: Int, year: Int): Boolean {
+        return repository.isBudgetPromptDismissed(month, year)
+    }
+
+    fun setBudgetPromptDismissed(month: Int, year: Int, dismissed: Boolean) {
+        repository.setBudgetPromptDismissed(month, year, dismissed)
+        _categoriesTrigger.value = System.currentTimeMillis()
+    }
+
+    fun copyMonthlyBudgets(srcMonth: Int, srcYear: Int, targetMonth: Int, targetYear: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.copyMonthlyBudgets(srcMonth, srcYear, targetMonth, targetYear)
+            _categoriesTrigger.value = System.currentTimeMillis()
+            repository.updateAllWidgets()
+            showSnackbar("Budget copied successfully")
+            onComplete()
+        }
+    }
+
     fun isCategoryBudgetRecurringForMonth(categoryId: Int, month: Int, year: Int): Boolean {
         return repository.isCategoryBudgetRecurringForMonth(categoryId, month, year)
     }
@@ -445,7 +503,27 @@ class TrackerViewModel(
             _userName.value = repository.getUserName()
             _globalMonthlyBudget.value = repository.getGlobalMonthlyBudget()
             _themeMode.value = repository.getThemeMode()
+            _selectedCurrency.value = repository.getSelectedCurrency()
+            _budgetAlertsEnabled.value = repository.isBudgetAlertsEnabled()
+            
+            val dailyEnabled = repository.isDailySpendNotificationEnabled()
+            val dailyTime = repository.getDailySpendNotificationTime()
+            _dailySpendNotificationEnabled.value = dailyEnabled
+            _dailySpendNotificationTime.value = dailyTime
+            
+            _sheetsSyncEnabled.value = repository.isSheetsSyncEnabled()
+            _connectedSheetId.value = repository.getConnectedSheetId()
             _categoriesTrigger.value = System.currentTimeMillis()
+            
+            // Reschedule daily spend notification according to the imported profile settings
+            if (dailyEnabled) {
+                val parts = dailyTime.split(":")
+                val hour = parts.getOrNull(0)?.toIntOrNull() ?: 23
+                val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                com.example.NotificationScheduler.scheduleDailyNotification(getApplication(), hour, minute)
+            } else {
+                com.example.NotificationScheduler.cancelDailyNotification(getApplication())
+            }
             
             // Re-trigger widget update with a brief delay to ensure thread synchronization
             try {

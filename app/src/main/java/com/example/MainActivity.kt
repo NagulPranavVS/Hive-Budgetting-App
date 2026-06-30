@@ -18,6 +18,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -80,10 +82,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: android.content.Intent?, viewModel: TrackerViewModel) {
-         intent?.action?.let { action ->
-             if (action == "com.example.action.ADD_EXPENSE" || action == "com.example.action.ADD_INCOME") {
-                 viewModel.widgetActionTrigger.value = action
-                 viewModel.widgetRouteIsIncome.value = (action == "com.example.action.ADD_INCOME")
+         if (intent == null) return
+         val action = intent.action
+         if (action == "com.example.action.ADD_EXPENSE" || action == "com.example.action.ADD_INCOME") {
+             viewModel.widgetActionTrigger.value = action
+             viewModel.widgetRouteIsIncome.value = (action == "com.example.action.ADD_INCOME")
+         } else {
+             val navigateTo = intent.getStringExtra("navigate_to")
+             if (!navigateTo.isNullOrEmpty()) {
+                 viewModel.widgetActionTrigger.value = "NAV_TO_$navigateTo"
              }
          }
     }
@@ -92,6 +99,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            try {
+                val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    display
+                } else {
+                    @Suppress("DEPRECATION")
+                    window.windowManager.defaultDisplay
+                }
+                
+                val modes = display?.supportedModes
+                if (!modes.isNullOrEmpty()) {
+                    val highestRefreshRateMode = modes.maxByOrNull { it.refreshRate }
+                    if (highestRefreshRateMode != null) {
+                        val params = window.attributes
+                        params.preferredDisplayModeId = highestRefreshRateMode.modeId
+                        window.attributes = params
+                    }
+                }
+            } catch (e: Exception) {
+                // Safely ignore
+            }
+        }
 
         // Get application and repository singletons
         val trackerApp = application as TrackerApplication
@@ -102,6 +132,15 @@ class MainActivity : ComponentActivity() {
             TrackerViewModelFactory(trackerApp, repository)
         )[TrackerViewModel::class.java]
         trackerViewModel = viewModel
+
+        // Reschedule daily notification if enabled to ensure state persistence
+        if (repository.isDailySpendNotificationEnabled()) {
+            val time = repository.getDailySpendNotificationTime()
+            val parts = time.split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 23
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            com.example.NotificationScheduler.scheduleDailyNotification(this, hour, minute)
+        }
 
         if (savedInstanceState == null && !isStartIntentProcessed) {
             handleIntent(intent, viewModel)
@@ -128,16 +167,28 @@ class MainActivity : ComponentActivity() {
                 // Track selected tab dynamically from backstack!
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route ?: TabDestination.Home.route
-                val showBottomBar = currentRoute != TabDestination.AddExpense.route && currentRoute != "manage_categories"
+                val showBottomBar = currentRoute != TabDestination.AddExpense.route && currentRoute != "manage_categories" && currentRoute != "copy_budget" && !(currentRoute?.startsWith("category_detail") ?: false)
 
                 // Listen to widget quick-actions and navigate accordingly
                 LaunchedEffect(viewModel, navController) {
                     viewModel.widgetActionTrigger.collect { action ->
                         if (action != null) {
+                            var targetRoute: String? = null
                             if (action == "com.example.action.ADD_EXPENSE") {
                                 viewModel.widgetRouteIsIncome.value = false
+                                targetRoute = TabDestination.AddExpense.route
                             } else if (action == "com.example.action.ADD_INCOME") {
                                 viewModel.widgetRouteIsIncome.value = true
+                                targetRoute = TabDestination.AddExpense.route
+                            } else if (action.startsWith("NAV_TO_")) {
+                                val dest = action.substringAfter("NAV_TO_")
+                                targetRoute = when (dest) {
+                                    "reports" -> TabDestination.MonthlyReport.route
+                                    "transactions" -> TabDestination.Transactions.route
+                                    "profile" -> TabDestination.Profile.route
+                                    "home" -> TabDestination.Home.route
+                                    else -> dest
+                                }
                             }
                             
                             viewModel.widgetActionTrigger.value = null
@@ -155,11 +206,11 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 
-                                if (hasGraph) {
+                                if (hasGraph && targetRoute != null) {
                                     val currentEntry = navController.currentBackStackEntry
                                     val currentDestRoute = currentEntry?.destination?.route
-                                    if (currentDestRoute != TabDestination.AddExpense.route) {
-                                        navController.navigate(TabDestination.AddExpense.route) {
+                                    if (currentDestRoute != targetRoute) {
+                                        navController.navigate(targetRoute) {
                                             launchSingleTop = true
                                         }
                                     }
@@ -172,13 +223,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Listen to viewModel snackbar messages and trigger the snackbar host
+                LaunchedEffect(viewModel, snackbarHostState) {
+                    viewModel.snackbarMessage.collect { message ->
+                        snackbarHostState.showSnackbar(
+                            message = message,
+                            actionLabel = "Dismiss",
+                            duration = androidx.compose.material3.SnackbarDuration.Short
+                        )
+                    }
+                }
+
                 val selectedTab = remember(currentRoute) {
                     when (currentRoute) {
                         TabDestination.Home.route -> TabDestination.Home
                         TabDestination.Transactions.route -> TabDestination.Transactions
                         TabDestination.AddExpense.route -> TabDestination.AddExpense
                         TabDestination.MonthlyReport.route -> TabDestination.MonthlyReport
-                        TabDestination.Profile.route -> TabDestination.Profile
+                        TabDestination.Profile.route, "manage_categories" -> TabDestination.Profile
                         else -> TabDestination.Home
                     }
                 }
@@ -211,12 +273,11 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         containerColor = Color.Transparent,
-
                                         contentColor = Color.White,
                                         elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                                         modifier = Modifier
                                             .padding(
-                                                bottom = if (showBottomBar) 102.dp else 14.dp,
+                                                bottom = 102.dp,
                                                 end = 4.dp
                                             )
                                             .testTag("floating_add_button")
@@ -359,7 +420,10 @@ class MainActivity : ComponentActivity() {
                                                 restoreState = true
                                             }
                                         },
-                                        onSetBudgetClick = {
+                                        onCopyBudgetClick = {
+                                             navController.navigate("copy_budget")
+                                         },
+                                         onSetBudgetClick = {
                                             navController.navigate("manage_categories")
                                         }
                                     )
@@ -387,17 +451,44 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 composable(TabDestination.MonthlyReport.route) {
-                                    MonthlyReportScreen(viewModel = viewModel)
+                                    MonthlyReportScreen(
+                                         viewModel = viewModel,
+                                         onCategoryClick = { categoryId ->
+                                             navController.navigate("category_detail/$categoryId")
+                                         }
+                                     )
+                                 }
+                                 composable("category_detail/{categoryId}") { backStackEntry ->
+                                     val catIdStr = backStackEntry.arguments?.getString("categoryId")
+                                     val catId = catIdStr?.toIntOrNull() ?: 0
+                                     com.example.ui.screens.CategoryDetailScreen(
+                                         viewModel = viewModel,
+                                         categoryId = catId,
+                                         onBack = { navController.popBackStack() },
+                                         onEditExpense = { expense ->
+                                             viewModel.startEditingExpense(expense)
+                                             navController.navigate(TabDestination.AddExpense.route)
+                                         }
+                                     )
                                 }
                                 composable(TabDestination.Profile.route) {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onManageCategories = {
+                                        onCopyBudget = {
+                                             navController.navigate("copy_budget")
+                                         },
+                                         onManageCategories = {
                                             navController.navigate("manage_categories")
                                         }
                                     )
                                 }
-                                composable("manage_categories") {
+                                composable("copy_budget") {
+                                     com.example.ui.screens.CopyBudgetScreen(
+                                         viewModel = viewModel,
+                                         onBack = { navController.popBackStack() }
+                                     )
+                                 }
+                                 composable("manage_categories") {
                                     com.example.ui.screens.ManageCategoriesScreen(
                                         viewModel = viewModel,
                                         onBack = { navController.popBackStack() }
@@ -406,7 +497,20 @@ class MainActivity : ComponentActivity() {
                             }
 
                             // Beautiful, solid floating bottom nav bar adapted to both Dark and Light themes
-                            if (!WindowInsets.isImeVisible && showBottomBar) {
+                            AnimatedVisibility(
+                                visible = !WindowInsets.isImeVisible && showBottomBar,
+                                enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
+                                    initialOffsetY = { it },
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                ),
+                                exit = fadeOut(animationSpec = tween(220)) + slideOutVertically(
+                                    targetOffsetY = { it },
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                ),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                            ) {
                                 val isDark = MaterialTheme.colorScheme.background.red < 0.2f
                                 val barBgColor = if (isDark) MaterialTheme.colorScheme.background else Color(0xFFFFFFFF)
                                 val barBorderColor = if (isDark) Color(0x1FFFFFFF) else Color(0x0F000000)
@@ -415,7 +519,6 @@ class MainActivity : ComponentActivity() {
 
                                 Box(
                                     modifier = Modifier
-                                        .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
                                         .navigationBarsPadding()
                                         .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp)
@@ -425,7 +528,7 @@ class MainActivity : ComponentActivity() {
                                             .fillMaxWidth()
                                             .height(72.dp)
                                             .shadow(
-                                                elevation = 16.dp,
+                                                elevation = 4.dp,
                                                 shape = CircleShape,
                                                 clip = false
                                             )
@@ -502,6 +605,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+
+
                         }
                         }
 

@@ -41,6 +41,10 @@ import com.example.data.model.Category
 import kotlinx.coroutines.launch
 import com.example.ui.CategoryIconHelper
 import com.example.ui.TrackerViewModel
+import com.example.ui.CurrencyFormatter
+import com.example.ui.FinanceText
+import com.example.ui.components.InfoIconTooltip
+import com.example.ui.components.StyledSwitch
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -229,8 +233,11 @@ fun ManageCategoriesScreen(
             }
 
             // --- PREMIUM REIMAGINED TOTAL CATEGORY BUDGET WIDGETS ---
-            val totalAllocatedBudgetVal = kotlin.math.round(incomeThisMonthAmount - savingsThisMonthAmount)
-            val remainingBudgetBalanceVal = totalAllocatedBudgetVal - kotlin.math.round(totalExpenseCatBudget)
+            val roundedIncome = java.lang.Math.round(incomeThisMonthAmount).toDouble()
+            val roundedSavings = java.lang.Math.round(savingsThisMonthAmount).toDouble()
+            val roundedExpenseBudgets = java.lang.Math.round(totalExpenseCatBudget).toDouble()
+            val totalAllocatedBudgetVal = roundedIncome - roundedSavings
+            val remainingBudgetBalanceVal = totalAllocatedBudgetVal - roundedExpenseBudgets
             
             val shortMonthsListEx = listOf(
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -282,12 +289,12 @@ fun ManageCategoriesScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "$currencySymbol${String.format(Locale.US, "%,.0f", totalAllocatedBudgetVal)}",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 19.sp
-                            ),
+                        FinanceText(
+                            currencySymbol = currencySymbol,
+                            amount = totalAllocatedBudgetVal,
+                            baseFontSize = 19.sp,
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge,
                             color = if (isDark) Color.White else Color(0xFF1E1B4B)
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -349,12 +356,12 @@ fun ManageCategoriesScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "$currencySymbol${String.format(Locale.US, "%,.0f", remainingBudgetBalanceVal)}",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 19.sp
-                            ),
+                        FinanceText(
+                            currencySymbol = currencySymbol,
+                            amount = remainingBudgetBalanceVal,
+                            baseFontSize = 19.sp,
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge,
                             color = remainingColor
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -372,50 +379,35 @@ fun ManageCategoriesScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp)
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(
-                        if (isDark) Color(0xFF1C1C1E)
-                        else Color(0xFFF1F3F9)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = if (isDark) Color(0xFF2E2E2E) else Color(0xFFE5E7EB),
-                        shape = RoundedCornerShape(26.dp)
-                    )
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .height(44.dp)
+                    .padding(vertical = 2.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(if (isDark) Color(0xFF1E1E24) else Color(0xFFEAEBF0))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf("expense" to "Expenses", "income" to "Income", "savings" to "Savings").forEach { (section, label) ->
                     val isSelected = selectedSection == section
-                    val capsuleColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.Transparent
-                    }
-                    val textColor = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        if (isDark) Color.White.copy(alpha = 0.65f)
-                        else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                    }
-                    val labelWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    val activeBgColor = MaterialTheme.colorScheme.primary
+                    val activeTextColor = MaterialTheme.colorScheme.onPrimary
+                    val inactiveTextColor = if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B)
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(capsuleColor)
-                            .clickable { selectedSection = section }
-                            .padding(vertical = 12.dp),
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (isSelected) activeBgColor else Color.Transparent)
+                            .clickable { selectedSection = section },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = label,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = labelWeight,
-                                color = textColor
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) activeTextColor else inactiveTextColor,
+                                fontSize = 13.sp
                             )
                         )
                     }
@@ -604,7 +596,7 @@ fun ManageCategoriesScreen(
                                                         .background(parsedColor)
                                                 )
                                                 Text(
-                                                    text = "Budget: $currencySymbol${String.format(Locale.US, "%,.0f", budgetVal)}",
+                                                    text = "Budget: $currencySymbol${String.format(Locale.US, "%,.2f", budgetVal)}",
                                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                                                     maxLines = 1,
@@ -742,40 +734,45 @@ fun ManageCategoriesScreen(
                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+                                unfocusedBorderColor = if (isDark) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f) else Color(0xFFCBD5E1),
                                 focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                unfocusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color(0xFFF1F5F9),
+                                focusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color.White
                             )
                         )
                         val enteredBudgetAmt = catBudget.trim().toDoubleOrNull() ?: 0.0
-                        val availableBalanceForCreate = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget)
+                        val availableBalanceForCreate = (incomeThisMonthAmount - savingsThisMonthAmount) - totalExpenseCatBudget
                         val adjustedBalance = availableBalanceForCreate - enteredBudgetAmt
-                        val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
+                        val formattedBalance = String.format(Locale.getDefault(), "%,.2f", adjustedBalance)
                         Text(
                             text = "Remaining Balance: $currencySymbol$formattedBalance",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Row(
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Text(
                                     text = "Recurring Expense",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "Enable to automatically copy this budget to all future/upcoming months",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                InfoIconTooltip(
+                                    description = "Enable to automatically copy this budget to all future/upcoming months",
+                                    contentDescription = "Recurring Expense Info"
                                 )
                             }
-                            Switch(
+                            StyledSwitch(
                                 checked = isRecurring,
                                 onCheckedChange = { isRecurring = it }
                             )
@@ -1006,66 +1003,74 @@ fun ManageCategoriesScreen(
                                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+                                unfocusedBorderColor = if (isDark) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f) else Color(0xFFCBD5E1),
                                 focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                unfocusedLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                unfocusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color(0xFFF1F5F9),
+                                focusedContainerColor = if (isDark) Color(0xFF2A2A2A) else Color.White
                             )
                         )
                         val enteredBudgetAmt = renameBudget.trim().toDoubleOrNull() ?: 0.0
                         val otherBudgetsSum = categories
                             .filter { !it.isIncome && !it.isSavings && it.id != categoryToRename.id }
                             .sumOf { it.monthlyBudget ?: 0.0 }
-                        val availableBalanceForEdit = kotlin.math.round((incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum)
+                        val availableBalanceForEdit = (incomeThisMonthAmount - savingsThisMonthAmount) - otherBudgetsSum
                         val adjustedBalance = availableBalanceForEdit - enteredBudgetAmt
-                        val formattedBalance = String.format(Locale.getDefault(), "%,.0f", adjustedBalance)
+                        val formattedBalance = String.format(Locale.getDefault(), "%,.2f", adjustedBalance)
                         Text(
                             text = "Remaining Balance: $currencySymbol$formattedBalance",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (adjustedBalance >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Row(
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Text(
                                     text = "Recurring Expense",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "Enable to automatically copy this budget to all future/upcoming months",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                InfoIconTooltip(
+                                    description = "Enable to automatically copy this budget to all future/upcoming months",
+                                    contentDescription = "Recurring Expense Info"
                                 )
                             }
-                            Switch(
+                            StyledSwitch(
                                 checked = renameIsRecurring,
                                 onCheckedChange = { renameIsRecurring = it }
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Row(
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Text(
                                     text = "Mark as Settled",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "Hides it from the main active spending list once paid.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                InfoIconTooltip(
+                                    description = "Hides it from the main active spending list once paid.",
+                                    contentDescription = "Mark as Settled Info"
                                 )
                             }
-                            Switch(
+                            StyledSwitch(
                                 checked = renameIsSettled,
                                 onCheckedChange = { renameIsSettled = it }
                             )

@@ -43,6 +43,8 @@ import com.example.data.model.Category
 import com.example.data.model.Expense
 import com.example.ui.CategoryIconHelper
 import com.example.ui.TrackerViewModel
+import com.example.ui.CurrencyFormatter
+import com.example.ui.FinanceText
 import com.example.ui.components.SetBudgetDialog
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
@@ -51,7 +53,8 @@ import java.util.*
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MonthlyReportScreen(
-    viewModel: TrackerViewModel
+    viewModel: TrackerViewModel,
+    onCategoryClick: (Int) -> Unit = {}
 ) {
     val allExpenses by viewModel.expenses.collectAsState()
     val selectedCurrency by viewModel.selectedCurrency.collectAsState()
@@ -172,7 +175,7 @@ fun MonthlyReportScreen(
         val otherBudgetsSum = categoriesWithBudgets
             .filter { !it.isIncome && !it.isSavings && it.id != dialogCat.id }
             .sumOf { it.monthlyBudget ?: 0.0 }
-        val reportRemainingBalance = kotlin.math.round((filteredIncome - filteredSavings) - otherBudgetsSum)
+        val reportRemainingBalance = (filteredIncome - filteredSavings) - otherBudgetsSum
         
         SetBudgetDialog(
             category = dialogCat,
@@ -281,7 +284,7 @@ fun MonthlyReportScreen(
     }
 
     fun formatCurrency(amount: Double): String {
-        return currencySymbol + String.format(Locale.US, "%,.2f", amount)
+        return CurrencyFormatter.formatPlain(currencySymbol, amount)
     }
 
     Column(
@@ -455,6 +458,17 @@ fun MonthlyReportScreen(
             }
         }
 
+        val reportCategoriesRecurringMap = remember(categorySpendList, reportMonth, reportYear, categoriesTrigger) {
+            categorySpendList.associate { spend ->
+                spend.categoryId to viewModel.isCategoryBudgetRecurringForMonth(spend.categoryId, reportMonth, reportYear)
+            }
+        }
+        val reportCategoriesSettledMap = remember(categorySpendList, reportMonth, reportYear, categoriesTrigger) {
+            categorySpendList.associate { spend ->
+                spend.categoryId to viewModel.isCategoryBudgetSettledForMonth(spend.categoryId, reportMonth, reportYear)
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -578,11 +592,12 @@ fun MonthlyReportScreen(
                             totalSpent = displayTotalSpent,
                             categoriesMap = categoriesMap,
                             currencySymbol = currencySymbol,
-                            onSetBudgetClick = { showSetBudgetDialogForCategory = it },
-                            isCategoryRecurring = { catId -> viewModel.isCategoryBudgetRecurringForMonth(catId, reportMonth, reportYear) },
-                            isCategorySettled = { catId -> viewModel.isCategoryBudgetSettledForMonth(catId, reportMonth, reportYear) },
+                            onCategoryClick = { categoryId -> onCategoryClick(categoryId) },
+                            isCategoryRecurring = { catId -> reportCategoriesRecurringMap[catId] ?: false },
+                            isCategorySettled = { catId -> reportCategoriesSettledMap[catId] ?: false },
                             onToggleCategorySettled = { catId, isSettled -> viewModel.setCategoryBudgetSettledForMonth(catId, reportMonth, reportYear, isSettled) },
-                            categoriesTrigger = categoriesTrigger
+                            categoriesTrigger = categoriesTrigger,
+                            onSetBudgetClick = { category -> showSetBudgetDialogForCategory = category }
                         )
                     }
                 }
@@ -933,10 +948,10 @@ fun ReportExpenseRow(
                 }
             }
 
-            val amountLabel = when {
-                expense.isSavings -> currencySymbol + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-                expense.isIncome -> "+$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
-                else -> "-$currencySymbol" + String.format(Locale.getDefault(), "%,.0f", expense.amount)
+            val prefix = when {
+                expense.isSavings -> ""
+                expense.isIncome -> "+"
+                else -> "-"
             }
             val amountColor = when {
                 expense.isSavings -> Color(0xFF3B82F6)
@@ -944,12 +959,14 @@ fun ReportExpenseRow(
                 else -> Color(0xFFF43F5E)
             }
 
-            Text(
-                text = amountLabel,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    color = amountColor
-                )
+            FinanceText(
+                currencySymbol = currencySymbol,
+                amount = expense.amount,
+                baseFontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                style = MaterialTheme.typography.bodyLarge,
+                color = amountColor,
+                prefix = prefix
             )
         }
     }
@@ -1100,20 +1117,19 @@ fun DonutChartWidget(
             Spacer(modifier = Modifier.height(4.dp))
 
             // Large, bold total spent display inside donut
-            Text(
-                text = currencySymbol + String.format(Locale.US, "%,.0f", totalSpent),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Black,
-                    fontSize = 22.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    letterSpacing = (-0.5).sp
-                )
+            FinanceText(
+                currencySymbol = currencySymbol,
+                amount = totalSpent,
+                baseFontSize = 22.sp,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.titleMedium.copy(letterSpacing = (-0.5).sp),
+                color = MaterialTheme.colorScheme.onBackground
             )
 
             if (totalBudget > 0.0) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "of " + currencySymbol + String.format(Locale.US, "%,.0f", totalBudget),
+                    text = "of " + CurrencyFormatter.formatPlain(currencySymbol, totalBudget),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
@@ -1147,7 +1163,7 @@ fun BudgetProgressBar(
             .fillMaxWidth()
             .height(8.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
     ) {
         Box(
             modifier = Modifier
@@ -1164,12 +1180,13 @@ fun CategoryLegendWidget(
     categorySpendList: List<CategorySpend>,
     totalSpent: Double,
     categoriesMap: Map<Int, Category>,
-    onSetBudgetClick: (Category) -> Unit,
+    onCategoryClick: (Int) -> Unit,
     isCategoryRecurring: (Int) -> Boolean,
     isCategorySettled: (Int) -> Boolean,
     onToggleCategorySettled: (Int, Boolean) -> Unit,
     categoriesTrigger: Long = 0L,
-    currencySymbol: String = "₹"
+    currencySymbol: String = "₹",
+    onSetBudgetClick: (Category) -> Unit = {}
 ) {
     val (settledList, unsettledList) = remember(categorySpendList, categoriesMap, categoriesTrigger) {
         categorySpendList.partition { spend ->
@@ -1200,7 +1217,7 @@ fun CategoryLegendWidget(
     }
 
     fun formatCurrency(amount: Double): String {
-        return currencySymbol + String.format(Locale.getDefault(), "%,.0f", amount)
+        return CurrencyFormatter.formatPlain(currencySymbol, amount)
     }
 
     Column(
@@ -1238,7 +1255,7 @@ fun CategoryLegendWidget(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onSetBudgetClick(category)
+                                onCategoryClick(category.id)
                             },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
@@ -1284,15 +1301,26 @@ fun CategoryLegendWidget(
                                     }
                                 }
 
-                                val totalPct = if (totalSpent > 0.0) (spend.amount / totalSpent) * 100 else 0.0
-                                Text(
-                                    text = "${totalPct.roundToInt()}%",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = iconColor,
-                                        fontSize = 13.sp
+                                val showPct = if (catBudget > 0.0) (spend.amount / catBudget) * 100 else 0.0
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "${showPct.roundToInt()}%",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = iconColor,
+                                            fontSize = 13.sp
+                                        )
                                     )
-                                )
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "Navigate to category details",
+                                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -1367,7 +1395,7 @@ fun CategoryLegendWidget(
                             .fillMaxWidth()
                             .clickable {
                                 category?.let {
-                                    onSetBudgetClick(it)
+                                    onCategoryClick(it.id)
                                 }
                             },
                         shape = RoundedCornerShape(12.dp),
@@ -1407,14 +1435,25 @@ fun CategoryLegendWidget(
                                     )
                                 }
 
-                                Text(
-                                    text = formatCurrency(spend.amount),
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onBackground
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = formatCurrency(spend.amount),
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
                                     )
-                                )
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "Navigate to category details",
+                                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
@@ -1488,7 +1527,7 @@ fun CategoryLegendWidget(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onSetBudgetClick(category)
+                                onCategoryClick(category.id)
                             },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
@@ -1561,6 +1600,12 @@ fun CategoryLegendWidget(
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "Navigate to category details",
+                                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }
@@ -1607,7 +1652,7 @@ fun BarChartWidget(
             ) {
                 // Label (Amount above the bar)
                 Text(
-                    text = currencySymbol + String.format(Locale.US, "%,.0f", spent),
+                    text = CurrencyFormatter.formatPlain(currencySymbol, spent),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
